@@ -122,10 +122,10 @@ class Seq2seq:
                             )
                     encoder_output = tf.concat(bi_outputs, -1)
 
-                    # attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                    #         ENCODER_RNN_SIZE, encoder_output,
-                    #         memory_sequence_length=encoder_input_seq_lengths
-                    #         )
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, encoder_output,
+                            memory_sequence_length=encoder_input_seq_lengths
+                            )
 
                 with tf.variable_scope('decoder_prepare'):
                     decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
@@ -145,6 +145,10 @@ class Seq2seq:
                             training_helper,
                             encoder_final_state,
                             decoder_output_dense_layer
+                            )
+                    training_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            training_decoder, attention_machanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
                             )
                     training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             training_decoder,
@@ -167,6 +171,10 @@ class Seq2seq:
                             inference_helper,
                             encoder_final_state,
                             decoder_output_dense_layer
+                            )
+                    inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            inference_decoder, attention_machanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
                             )
                     inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             inference_decoder,
