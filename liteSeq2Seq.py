@@ -135,11 +135,6 @@ class Seq2seq:
                         encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
                     encoder_final_state = tuple(encoder_final_state)
 
-                    # Add attention mechanism
-                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                            ENCODER_RNN_SIZE, encoder_output,
-                            memory_sequence_length=encoder_input_seq_lengths
-                            )
 
 
                 with tf.variable_scope('decoder_prepare'):
@@ -155,6 +150,12 @@ class Seq2seq:
                             inputs=decoder_wordvec,
                             sequence_length=decoder_target_seq_lengths,
                             time_major=False)
+
+                    # Add attention mechanism
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, encoder_output,
+                            memory_sequence_length=encoder_input_seq_lengths
+                            )
 
                     # Wrapper Attention mechanism on plain rnn cell first
                     training_decoder = tf.contrib.seq2seq.AttentionWrapper(
@@ -173,19 +174,40 @@ class Seq2seq:
                     training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             training_decoder,
                             impute_finished=True,
-                            maximum_iterations=len(self.decoder_int_to_vocab)
+                            maximum_iterations=tf.reduce_max(decoder_target_seq_lengths)
                             )[0]
 
                 with tf.variable_scope('decoder', reuse=True):
+                    # Tiled start_token <GO>
                     start_tokens = tf.tile(
                             tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
                             [BATCH_SIZE],
                             name='start_tokens')
 
-                    inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                            decoder_embedding_weights,
-                            start_tokens,
-                            self.decoder_vocab_to_int['<EOS>']
+                    # # To use greedy decoder, open this
+                    # inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                    #         decoder_embedding_weights,
+                    #         start_tokens,
+                    #         self.decoder_vocab_to_int['<EOS>']
+                    #         )
+                    #
+                    # inference_decoder = tf.contrib.seq2seq.BasicDecoder(
+                    #         inference_decoder,
+                    #         inference_helper,
+                    #         inference_decoder.zero_state(BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
+                    #         decoder_output_dense_layer
+                    #         )
+
+                    # To use beam search decoder, open this
+                    # Beam search tile
+                    tiled_encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=BEAM_WIDTH)
+                    tiled_encoder_input_seq_lengths = tf.contrib.seq2seq.tile_batch(encoder_input_seq_lengths, multiplier=BEAM_WIDTH)
+                    # Explain the tile state, need explain, tile_batch can handle nested state
+                    tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(encoder_final_state, multiplier=BEAM_WIDTH)
+
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, tiled_encoder_output,
+                            memory_sequence_length=tiled_encoder_input_seq_lengths
                             )
 
                     inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
@@ -193,38 +215,29 @@ class Seq2seq:
                             attention_layer_size=ENCODER_RNN_SIZE
                             )
 
-                    inference_decoder = tf.contrib.seq2seq.BasicDecoder(
+                    inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
                             inference_decoder,
-                            inference_helper,
-                            inference_decoder.zero_state(BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
-                            decoder_output_dense_layer
+                            decoder_embedding_weights,
+                            start_tokens,
+                            self.decoder_vocab_to_int['<EOS>'],
+                            inference_decoder.zero_state(BATCH_SIZE*BEAM_WIDTH,tf.float32).clone(
+                                cell_state=tiled_encoder_final_state
+                                ),
+                            BEAM_WIDTH,
+                            decoder_output_dense_layer,
+                            length_penalty_weight=0.0
                             )
-
-                    # decoder_initial_state = tf.nn.rnn_cell.LSTMStateTuple([tf.contrib.seq2seq.tile_batch(
-                    #         item,
-                    #         multiplier=BEAM_WIDTH
-                    #         ) for item in encoder_final_state])
-                    # inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
-                    #         decoder_rnn,
-                    #         decoder_embedding_weights,
-                    #         start_tokens,
-                    #         self.decoder_vocab_to_int['<EOS>'],
-                    #         decoder_initial_state,
-                    #         BEAM_WIDTH,
-                    #         decoder_output_dense_layer
-                    #         )
 
                     inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             inference_decoder,
-                            impute_finished=True,
-                            maximum_iterations=len(self.decoder_int_to_vocab)
+                            impute_finished=False,
+                            maximum_iterations=2*tf.reduce_max(encoder_input_seq_lengths)
                             )[0]
-
 
                 # Get train_op
                 with tf.variable_scope('optimization'):
                     training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
-                    inference_logits = tf.identity(inference_decoder_output.sample_id, name='predictions')
+                    inference_logits = tf.identity(inference_decoder_output.predicted_ids[:,:,0], name='predictions')
 
                     # Why mask, explain
                     mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
