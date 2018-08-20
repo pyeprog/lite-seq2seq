@@ -10,10 +10,11 @@ if not os.path.isdir(MODEL_PATH):
 
 EMBEDDING_DIM = 128
 ENCODER_RNN_SIZE = 256
-ENCODER_RNN_LAYERS_N = 2
+ENCODER_RNN_LAYERS_N = 3
+BEAM_WIDTH = 5
 BATCH_SIZE = 32
 LEARNING_RATE = 7e-4
-EPOCH = 10
+EPOCH = 1
 
 class Seq2seq:
     def __init__(self):
@@ -108,24 +109,36 @@ class Seq2seq:
                 with tf.variable_scope('encoder'):
                     encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM)
 
-                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
-                    encoder_rnn_forward = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-
-                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
-                    encoder_rnn_backward = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-
+                    # # To use stacked uni-directional rnn encoder, open this
+                    # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    # encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
                     # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
-                    bi_outputs, encoder_final_state = tf.nn.bidirectional_dynamic_rnn(
-                            encoder_rnn_forward, encoder_rnn_backward, encoder_wordvec,
+                    # print(encoder_output.get_shape())
+                    # print(encoder_final_state)
+
+                    # To use stacked bi-directional rnn encoder, open this
+                    # Explain for the state concat, explain
+                    rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
+
+                    encoder_output, forward_final_state, backward_final_state = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
+                            rnn_cell_list_forward, rnn_cell_list_backward, encoder_wordvec,
                             sequence_length=encoder_input_seq_lengths, time_major=False,
                             dtype=tf.float32
                             )
-                    encoder_output = tf.concat(bi_outputs, -1)
 
-                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                            ENCODER_RNN_SIZE, encoder_output,
-                            memory_sequence_length=encoder_input_seq_lengths
-                            )
+                    encoder_final_state = []
+                    for forward_cell_state, backward_cell_state in zip(forward_final_state, backward_final_state):
+                        concated_state = tf.concat([forward_cell_state.c, backward_cell_state.c], -1)
+                        concated_output = tf.concat([forward_cell_state.h, backward_cell_state.h], -1)
+                        encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
+                    encoder_final_state = tuple(encoder_final_state)
+
+                    # attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                    #         ENCODER_RNN_SIZE, encoder_output,
+                    #         memory_sequence_length=encoder_input_seq_lengths
+                    #         )
+
 
                 with tf.variable_scope('decoder_prepare'):
                     decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
@@ -146,10 +159,10 @@ class Seq2seq:
                             encoder_final_state,
                             decoder_output_dense_layer
                             )
-                    training_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                            training_decoder, attention_machanism,
-                            attention_layer_size=ENCODER_RNN_SIZE
-                            )
+                    # training_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                    #         training_decoder, attention_machanism,
+                    #         attention_layer_size=ENCODER_RNN_SIZE
+                    #         )
                     training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             training_decoder,
                             impute_finished=True,
@@ -172,10 +185,10 @@ class Seq2seq:
                             encoder_final_state,
                             decoder_output_dense_layer
                             )
-                    inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                            inference_decoder, attention_machanism,
-                            attention_layer_size=ENCODER_RNN_SIZE
-                            )
+                    # inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                    #         inference_decoder, attention_machanism,
+                    #         attention_layer_size=ENCODER_RNN_SIZE
+                    #         )
                     inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             inference_decoder,
                             impute_finished=True,
@@ -298,7 +311,7 @@ if __name__ == '__main__':
     model = Seq2seq()
     encode_file_path = './data/test_en_fr/test_enc.txt'
     decode_file_path = './data/test_en_fr/test_dec.txt'
-    model.load('./models/14877418162848366253')
+    # model.load('./models/14877418162848366253')
     model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
