@@ -12,8 +12,8 @@ EMBEDDING_DIM = 128
 ENCODER_RNN_SIZE = 256
 ENCODER_RNN_LAYERS_N = 2
 BATCH_SIZE = 32
-LEARNING_RATE = 1e-3
-EPOCH = 100
+LEARNING_RATE = 7e-4
+EPOCH = 1
 
 class Seq2seq:
     def __init__(self):
@@ -23,6 +23,10 @@ class Seq2seq:
 
         if not os.path.isdir(self.model_ckpt_dir):
             os.mkdir(self.model_ckpt_dir)
+
+    def __delete__(self):
+        if hasattr(self, 'sess'):
+            self.sess.close()
 
     def _text_file_parse(self, path):
         '''
@@ -79,10 +83,6 @@ class Seq2seq:
 
 
     def train(self, encode_file_path, decode_file_path):
-        pass
-
-
-    def train_new(self, encode_file_path, decode_file_path):
         '''
         Train the model for the first time or retrain the model
         @encode_file_path: str, the path of the encoder training file
@@ -90,99 +90,110 @@ class Seq2seq:
         @return: None
         '''
         self._init_data()
+        if not hasattr(self, 'sess'):
+            # Train model from start
+            self.graph = tf.Graph()
+            with self.graph.as_default():
+                # create placeholder
+                ## why the shape is [None, None]? explain
+                encoder_input = tf.placeholder(tf.int32, shape=[None, None], name='inputs')
+                decoder_target = tf.placeholder(tf.int32, shape=[None, None], name='targets')
+                decoder_input = tf.concat(
+                        [tf.fill([BATCH_SIZE,1], self.decoder_vocab_to_int['<GO>']), 
+                        tf.strided_slice(decoder_target, [0,0], [BATCH_SIZE,-1], [1,1])],
+                        1)
+                
+                ## why does it need sequence length placeholder? explain
+                encoder_input_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='source_lens')
+                decoder_target_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='target_lens')
 
-        self.graph = tf.Graph()
+                # Build whole model and Get training_logits
+                with tf.variable_scope('encoder'):
+                    encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM)
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+                    encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
+
+                with tf.variable_scope('decoder_prepare'):
+                    decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
+                    decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input)
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+                    decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab),
+                            kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
+
+                with tf.variable_scope('decoder'):
+                    training_helper = tf.contrib.seq2seq.TrainingHelper(
+                            inputs=decoder_wordvec,
+                            sequence_length=decoder_target_seq_lengths,
+                            time_major=False)
+                    training_decoder = tf.contrib.seq2seq.BasicDecoder(
+                            decoder_rnn,
+                            training_helper,
+                            encoder_final_state,
+                            decoder_output_dense_layer
+                            )
+                    training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
+                            training_decoder,
+                            impute_finished=True,
+                            maximum_iterations=len(self.decoder_int_to_vocab)
+                            )[0]
+
+                with tf.variable_scope('decoder', reuse=True):
+                    start_tokens = tf.tile(
+                            tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
+                            [BATCH_SIZE],
+                            name='start_tokens')
+                    inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                            decoder_embedding_weights,
+                            start_tokens,
+                            self.decoder_vocab_to_int['<EOS>']
+                            )
+                    inference_decoder = tf.contrib.seq2seq.BasicDecoder(
+                            decoder_rnn,
+                            inference_helper,
+                            encoder_final_state,
+                            decoder_output_dense_layer
+                            )
+                    inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
+                            inference_decoder,
+                            impute_finished=True,
+                            maximum_iterations=len(self.decoder_int_to_vocab)
+                            )[0]
+
+
+                # Get train_op
+                with tf.variable_scope('optimization'):
+                    training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
+                    inference_logits = tf.identity(inference_decoder_output.sample_id, name='predictions')
+
+                    # Why mask, explain
+                    mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
+                    cost = tf.contrib.seq2seq.sequence_loss(
+                            training_logits,
+                            decoder_target,
+                            mask,
+                            name='cost'
+                            )
+                    optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    gradients = optimizer.compute_gradients(cost)
+                    capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
+                    train_op = optimizer.apply_gradients(capped_gradients, name='train_op')
+
+                self.sess = tf.Session()
+                self.sess.run(tf.global_variables_initializer())
+
+        else:
+            # Pre-trained model has loaded
+            with self.graph.as_default():
+                encoder_input = self.graph.get_tensor_by_name('inputs:0')
+                encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
+                decoder_target = self.graph.get_tensor_by_name('targets:0')
+                decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
+                train_op = tf.get_collection("optimization")[0]
+                cost = tf.get_collection("optimization")[1]
+
         with self.graph.as_default():
-            # create placeholder
-            ## why the shape is [None, None]? explain
-            encoder_input = tf.placeholder(tf.int32, shape=[None, None], name='inputs')
-            decoder_target = tf.placeholder(tf.int32, shape=[None, None], name='targets')
-            decoder_input = tf.concat(
-                    [tf.fill([BATCH_SIZE,1], self.decoder_vocab_to_int['<GO>']), 
-                    tf.strided_slice(decoder_target, [0,0], [BATCH_SIZE,-1], [1,1])],
-                    1)
-            
-            ## why does it need sequence length placeholder? explain
-            encoder_input_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='source_lens')
-            decoder_target_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='target_lens')
-
-            # Build whole model and Get training_logits
-            with tf.variable_scope('encoder'):
-                encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM)
-                rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
-                encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
-
-            with tf.variable_scope('decoder_prepare'):
-                decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
-                decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input)
-                rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
-                decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab),
-                        kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
-
-            with tf.variable_scope('decoder'):
-                training_helper = tf.contrib.seq2seq.TrainingHelper(
-                        inputs=decoder_wordvec,
-                        sequence_length=decoder_target_seq_lengths,
-                        time_major=False)
-                training_decoder = tf.contrib.seq2seq.BasicDecoder(
-                        decoder_rnn,
-                        training_helper,
-                        encoder_final_state,
-                        decoder_output_dense_layer
-                        )
-                training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
-                        training_decoder,
-                        impute_finished=True,
-                        maximum_iterations=len(self.decoder_int_to_vocab)
-                        )[0]
-
-            with tf.variable_scope('decoder', reuse=True):
-                start_tokens = tf.tile(
-                        tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
-                        [BATCH_SIZE],
-                        name='start_tokens')
-                inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                        decoder_embedding_weights,
-                        start_tokens,
-                        self.decoder_vocab_to_int['<EOS>']
-                        )
-                inference_decoder = tf.contrib.seq2seq.BasicDecoder(
-                        decoder_rnn,
-                        inference_helper,
-                        encoder_final_state,
-                        decoder_output_dense_layer
-                        )
-                inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
-                        inference_decoder,
-                        impute_finished=True,
-                        maximum_iterations=len(self.decoder_int_to_vocab)
-                        )[0]
-
-
-            # Get train_op
-            with tf.variable_scope('optimization'):
-                training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
-                inference_logits = tf.identity(inference_decoder_output.sample_id, name='predictions')
-
-                # Why mask, explain
-                mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
-                cost = tf.contrib.seq2seq.sequence_loss(
-                        training_logits,
-                        decoder_target,
-                        mask
-                        )
-                optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
-                gradients = optimizer.compute_gradients(cost)
-                capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
-                train_op = optimizer.apply_gradients(capped_gradients)
-        
-            saver = tf.train.Saver(max_to_keep=1)
-
-            self.sess = tf.Session()
-
-            self.sess.run(tf.global_variables_initializer())
 
             encode_pad_id = self.encoder_vocab_to_int['<PAD>']
             decode_pad_id = self.decoder_vocab_to_int['<PAD>']
@@ -204,19 +215,25 @@ class Seq2seq:
                                 }
                             )
 
-                    print("E:{}  B:{} - Loss: {}".format(epoch_i, batch_i, loss))
+                print("E:{}  B:{} - Loss: {}".format(epoch_i, batch_i, loss))
 
             # Save model at the end of the training
+            tf.add_to_collection("optimization", train_op)
+            tf.add_to_collection("optimization", cost)
+
+            saver = tf.train.Saver(max_to_keep=1)
             saver.save(self.sess, self.model_ckpt_path)
             with open(os.path.join(self.model_ckpt_dir, 'dictionary'), 'wb') as fp:
                 dictionary = (self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int)
                 pkl.dump(dictionary, fp)
-            print("Model saved")
-            # print([n.name for n in self.graph.as_graph_def().node])
+            print("Model has been trained and saved")
 
 
 
     def predict(self, encode_str):
+        if not hasattr(self, 'sess'):
+            raise RuntimeError('Your model is untrained, please train it first')
+
         encoder_unk_id = self.encoder_vocab_to_int['<UNK>']
         decoder_pad_id = self.decoder_vocab_to_int['<PAD>']
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
@@ -225,8 +242,6 @@ class Seq2seq:
         encode_str = encode_str.replace('\n', ' ')
         inputs = [[self.encoder_vocab_to_int.get(word, encoder_unk_id) for word in encode_str.split()]]
         inputs_lens = [len(line) for line in inputs]
-        # inputs = np.array(inputs)
-        # inputs_lens = np.array(inputs_lens)
 
         encoder_input = self.graph.get_tensor_by_name('inputs:0')
         encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
@@ -241,19 +256,26 @@ class Seq2seq:
                     }
                 )
         return ' '.join([self.decoder_int_to_vocab.get(i, '') for i in predict_list[0] if i!=decoder_pad_id and i!=decoder_eos_id])
-        # return predict_list
 
 
     def load(self, path):
-        return None
+        self._id = os.path.basename(path)
+        self.model_ckpt_path = os.path.join(path, 'checkpoint.ckpt')
+        with open(os.path.join(path, 'dictionary'), 'rb') as fp:
+            self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int = pkl.load(fp)
 
+        self.graph = tf.Graph()
+        with self.graph.as_default():
+            self.sess = tf.Session(graph=self.graph)
+            loader = tf.train.import_meta_graph(self.model_ckpt_path+'.meta')
+            loader.restore(self.sess, tf.train.latest_checkpoint(path))
 
 if __name__ == '__main__':
     model = Seq2seq()
     encode_file_path = './data/test_en_fr/test_enc.txt'
     decode_file_path = './data/test_en_fr/test_dec.txt'
-    encode_str = 'example'
-    model.train_new(encode_file_path, decode_file_path)
+    model.load('./models/14877418162848366253')
+    model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
