@@ -116,6 +116,7 @@ class Seq2seq:
                     # print(encoder_output.get_shape())
                     # print(encoder_final_state)
 
+
                     # To use stacked bi-directional rnn encoder, open this
                     # Explain for the state concat, explain
                     rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
@@ -134,10 +135,11 @@ class Seq2seq:
                         encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
                     encoder_final_state = tuple(encoder_final_state)
 
-                    # attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                    #         ENCODER_RNN_SIZE, encoder_output,
-                    #         memory_sequence_length=encoder_input_seq_lengths
-                    #         )
+                    # Add attention mechanism
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, encoder_output,
+                            memory_sequence_length=encoder_input_seq_lengths
+                            )
 
 
                 with tf.variable_scope('decoder_prepare'):
@@ -153,16 +155,21 @@ class Seq2seq:
                             inputs=decoder_wordvec,
                             sequence_length=decoder_target_seq_lengths,
                             time_major=False)
+
+                    # Wrapper Attention mechanism on plain rnn cell first
+                    training_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            decoder_rnn, attention_mechanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
+                            )
+
+                    # Make decoder and it's initial state with wrapped rnn cell
                     training_decoder = tf.contrib.seq2seq.BasicDecoder(
-                            decoder_rnn,
+                            training_decoder,
                             training_helper,
-                            encoder_final_state,
+                            training_decoder.zero_state(BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
                             decoder_output_dense_layer
                             )
-                    # training_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                    #         training_decoder, attention_machanism,
-                    #         attention_layer_size=ENCODER_RNN_SIZE
-                    #         )
+
                     training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             training_decoder,
                             impute_finished=True,
@@ -174,21 +181,39 @@ class Seq2seq:
                             tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
                             [BATCH_SIZE],
                             name='start_tokens')
+
                     inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                             decoder_embedding_weights,
                             start_tokens,
                             self.decoder_vocab_to_int['<EOS>']
                             )
+
+                    inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            decoder_rnn, attention_mechanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
+                            )
+
                     inference_decoder = tf.contrib.seq2seq.BasicDecoder(
-                            decoder_rnn,
+                            inference_decoder,
                             inference_helper,
-                            encoder_final_state,
+                            inference_decoder.zero_state(BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
                             decoder_output_dense_layer
                             )
-                    # inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                    #         inference_decoder, attention_machanism,
-                    #         attention_layer_size=ENCODER_RNN_SIZE
+
+                    # decoder_initial_state = tf.nn.rnn_cell.LSTMStateTuple([tf.contrib.seq2seq.tile_batch(
+                    #         item,
+                    #         multiplier=BEAM_WIDTH
+                    #         ) for item in encoder_final_state])
+                    # inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+                    #         decoder_rnn,
+                    #         decoder_embedding_weights,
+                    #         start_tokens,
+                    #         self.decoder_vocab_to_int['<EOS>'],
+                    #         decoder_initial_state,
+                    #         BEAM_WIDTH,
+                    #         decoder_output_dense_layer
                     #         )
+
                     inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
                             inference_decoder,
                             impute_finished=True,
@@ -249,7 +274,7 @@ class Seq2seq:
                                 }
                             )
 
-                print("E:{}  B:{} - Loss: {}".format(epoch_i, batch_i, loss))
+                    print("E:{}  B:{} - Loss: {}".format(epoch_i, batch_i, loss))
 
             # Save model at the end of the training
             if not os.path.isdir(self.model_ckpt_dir):
