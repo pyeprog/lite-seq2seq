@@ -13,16 +13,13 @@ ENCODER_RNN_SIZE = 256
 ENCODER_RNN_LAYERS_N = 2
 BATCH_SIZE = 32
 LEARNING_RATE = 7e-4
-EPOCH = 1
+EPOCH = 10
 
 class Seq2seq:
     def __init__(self):
         self._id = (str(random())[2:] + str(random())[2:])[:20]
         self.model_ckpt_dir = os.path.join(MODEL_PATH, self._id)
         self.model_ckpt_path = os.path.join(self.model_ckpt_dir, 'checkpoint.ckpt')
-
-        if not os.path.isdir(self.model_ckpt_dir):
-            os.mkdir(self.model_ckpt_dir)
 
     def __delete__(self):
         if hasattr(self, 'sess'):
@@ -110,16 +107,32 @@ class Seq2seq:
                 # Build whole model and Get training_logits
                 with tf.variable_scope('encoder'):
                     encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM)
-                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
-                    encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                    encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
+
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    encoder_rnn_forward = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    encoder_rnn_backward = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+
+                    # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
+                    bi_outputs, encoder_final_state = tf.nn.bidirectional_dynamic_rnn(
+                            encoder_rnn_forward, encoder_rnn_backward, encoder_wordvec,
+                            sequence_length=encoder_input_seq_lengths, time_major=False,
+                            dtype=tf.float32
+                            )
+                    encoder_output = tf.concat(bi_outputs, -1)
+
+                    # attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                    #         ENCODER_RNN_SIZE, encoder_output,
+                    #         memory_sequence_length=encoder_input_seq_lengths
+                    #         )
 
                 with tf.variable_scope('decoder_prepare'):
                     decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
                     decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input)
                     rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
                     decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                    decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab),
+                    decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab), use_bias=False,
                             kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
 
                 with tf.variable_scope('decoder'):
@@ -218,6 +231,9 @@ class Seq2seq:
                 print("E:{}  B:{} - Loss: {}".format(epoch_i, batch_i, loss))
 
             # Save model at the end of the training
+            if not os.path.isdir(self.model_ckpt_dir):
+                os.mkdir(self.model_ckpt_dir)
+
             tf.add_to_collection("optimization", train_op)
             tf.add_to_collection("optimization", cost)
 
