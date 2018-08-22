@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import _pickle as pkl
 import os
+import re
 from collections import Counter
 from random import random
 
@@ -22,12 +23,12 @@ ENCODER_RNN_LAYERS_N = 3
 BEAM_WIDTH = 5
 T_BATCH_SIZE = 32
 I_BATCH_SIZE = 1
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 MAX_GRADIENT_NORM = 5.
-EPOCH = 10
+EPOCH = 30
 
-VOCAB_THRES = 2
-
+VOCAB_COUNT_THRES = 2
+MAX_VOCAB = 40000
 
 # Suppress warning log
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -42,6 +43,14 @@ class Seq2seq:
     def __delete__(self):
         if hasattr(self, 'sess'):
             self.sess.close()
+
+
+    def get_id(self):
+        return self._id
+
+
+    def get_ckpt_dir(self):
+        return self.model_ckpt_dir
 
 
     def _rnn_cell(self, rnn_size):
@@ -78,10 +87,8 @@ class Seq2seq:
             for word in line.split():
                 word = word.lower()
                 word_count[word] += 1
-                if word_count[word] >= VOCAB_THRES:
-                    vocabs.add(word)
         
-        vocabs = list(vocabs)
+        vocabs = ['<PAD>', '<UNK>', '<GO>', '<EOS>'] + [word_tuple[0] for word_tuple in word_count.most_common()[:MAX_VOCAB] if word_tuple[1] >= VOCAB_COUNT_THRES]
         int_to_vocab = {i:word for i, word in enumerate(vocabs)}
         vocab_to_int = {word:i for i, word in enumerate(vocabs)}
         return int_to_vocab, vocab_to_int
@@ -276,11 +283,17 @@ class Seq2seq:
                             name='cost'
                             )
 
-                    trainable_params = tf.trainable_variables()
-                    gradients = tf.gradients(cost, trainable_params)
-                    capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
                     optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
-                    train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), name='train_op')
+                    gradients = optimizer.compute_gradients(cost)
+                    capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
+                    train_op = optimizer.apply_gradients(capped_gradients, name='train_op')
+
+                    #
+                    # trainable_params = tf.trainable_variables()
+                    # gradients = tf.gradients(cost, trainable_params)
+                    # capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
+                    # optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    # train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), name='train_op')
 
                 self.sess = tf.Session()
                 self.sess.run(tf.global_variables_initializer())
@@ -382,13 +395,24 @@ class Seq2seq:
                         }
                     )
 
-        return ' '.join([self.decoder_int_to_vocab.get(i, '') for i in predict_list[0] if i!=decoder_pad_id and i!=decoder_eos_id])
+        return ' '.join([self.decoder_int_to_vocab.get(i, '') for i in predict_list[0]])# if i!=decoder_pad_id and i!=decoder_eos_id])
+        # print(predict_list)
 
 
     def load(self, path):
+        if not os.path.isdir(path):
+            raise ValueError('{} is not valid path'.format(path))
+
         self._id = os.path.basename(path)
         self.model_ckpt_dir = path
         self.model_ckpt_path = os.path.join(path, 'checkpoint.ckpt')
+        
+        if not os.path.isfile(os.path.join(path, 'checkpoint')):
+            raise ValueError('There is no checkpoint file in {}'.format(path))
+
+        if not os.path.isfile(os.path.join(path, 'dictionary')):
+            raise ValueError('There is no dictionary file in {}'.format(path))
+
         with open(os.path.join(path, 'dictionary'), 'rb') as fp:
             self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int = pkl.load(fp)
 
@@ -399,21 +423,61 @@ class Seq2seq:
             loader.restore(self.sess, tf.train.latest_checkpoint(path))
 
 
+class TextProcessor:
+    def __init__(self):
+        self.proc_fn_list = []
+        self.proc_fn_list.append( lambda x: re.sub('\(.*?\)', '', x) )
+        self.proc_fn_list.append( lambda x: re.sub('\[.*?\]', '', x) )
+        self.proc_fn_list.append( lambda x: re.sub('\{.*?\}', '', x) )
+        self.proc_fn_list.append( lambda x: re.sub('\w\.{,1}\w\.*', lambda y:y.group().replace('.',''), x) )
+        self.proc_fn_list.append( lambda x: re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x) )
+        self.proc_fn_list.append( lambda x: re.sub('[,.!?;]+', lambda y:' '+y.group()+' ', x) )
+        self.proc_fn_list.append( lambda x: re.sub('[\"\`\(\)\[\]\{\}]+', '', x) )
+        self.proc_fn_list.append( lambda x: re.sub('\'+s*', '', x) )
+
+        # self.proc_fn_list.append( lambda string: re.sub('', '', string) )
+
+
+    def read(self, file_path):
+        if not os.path.isfile(file_path):
+            raise ValueError('{} is not valid file path'.format(file_path))
+        else:
+            self.file_path = file_path
+
+        with open(file_path, 'r') as fp:
+            self.lines = fp.readlines()
+
+        return self
+
+    def process(self, proc_fn_list=[], inplace=False):
+        if len(proc_fn_list) == 0:
+            proc_fn_list = self.proc_fn_list
+
+        new_lines = []
+        n_lines = len(self.lines)
+        for i, line in enumerate(self.lines):
+            if i % 1000 == 0: print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
+            for fn in proc_fn_list:
+                line = fn(line)
+            line += '\n' if line[-1] != '\n' else ''
+            new_lines.append(line)
+
+        new_content = ''.join(new_lines)
+
+        with open(self.file_path, 'w') as fp:
+            fp.write(new_content)
+
+        if not inplace:
+            return new_lines
+
+
 if __name__ == '__main__':
     model = Seq2seq()
     encode_file_path = './data/test_en_fr/test_enc.txt'
     decode_file_path = './data/test_en_fr/test_dec.txt'
-    # model.load('./models/02278817764866381035')
+    # model.load('./models/62256761725179498542')
     model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
 
-    # prediction_str = model.predict(encode_str)
-    # print("> {}".format(prediction_str))
-
-
-    # Test _seq_parse
-    # test_content, int_to_vocab = model._seq_parse(encode_file_path)
-    # print([len(line) for line in test_content])
-    # print(int_to_vocab)
