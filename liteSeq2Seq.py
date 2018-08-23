@@ -23,12 +23,20 @@ ENCODER_RNN_LAYERS_N = 3
 BEAM_WIDTH = 5
 T_BATCH_SIZE = 32
 I_BATCH_SIZE = 1
-LEARNING_RATE = 1e-5
 MAX_GRADIENT_NORM = 5.
-EPOCH = 30
+EPOCH = 1
+MAX_G_STEP = 500
 
 VOCAB_COUNT_THRES = 2
-MAX_VOCAB = 40000
+MAX_VOCAB = 4000
+
+LEARNING_RATE = 1e-4
+DECAY_RATE = 0.95
+DECAY_STEP = 50
+
+SHOW_EVERY = 50
+SUMMARY_EVERY = 10
+DEBUG = 1
 
 # Suppress warning log
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -62,14 +70,15 @@ class Seq2seq:
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
         for i in range(0, len(targets) // batch_size):
             start_i = i * batch_size
+
             batch_inputs = inputs[start_i: start_i+batch_size]
             batch_targets = [line+[decoder_eos_id] for line in targets[start_i: start_i+batch_size]]
 
             batch_inputs_lens = [len(line) for line in batch_inputs]
             batch_targets_lens = [len(line) for line in batch_targets]
 
-            inputs_cur_maxLen = max(batch_inputs_lens)
-            targets_cur_maxLen = max(batch_targets_lens)
+            inputs_cur_maxLen = np.max(batch_inputs_lens)
+            targets_cur_maxLen = np.max(batch_targets_lens)
 
             padding_batch_inputs = np.array([line + [input_padding_val]*(inputs_cur_maxLen-len(line)) for line in batch_inputs])
             padding_batch_targets = np.array([line + [target_padding_val]*(targets_cur_maxLen-len(line)) for line in batch_targets])
@@ -101,7 +110,9 @@ class Seq2seq:
         encoded_lines = []
         unk_id = vocab_to_int['<UNK>']
         for line in lines:
-            encoded_lines.append([vocab_to_int.get(word.lower(), unk_id) for word in line.split()])
+            cur = [vocab_to_int.get(word.lower(), unk_id) for word in line.split()]
+            if len(cur) > 0:
+                encoded_lines.append(cur)
 
         return encoded_lines
 
@@ -283,10 +294,17 @@ class Seq2seq:
                             name='cost'
                             )
 
-                    optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    global_step = tf.Variable(0, trainable=False)
+                    lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
+                    optimizer = tf.train.AdamOptimizer(lr)
                     gradients = optimizer.compute_gradients(cost)
                     capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
-                    train_op = optimizer.apply_gradients(capped_gradients, name='train_op')
+                    train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
+
+
+                    if DEBUG:
+                        tf.summary.scalar('seq_loss', cost)
+                        tf.summary.scalar('learning_rate', optimizer._lr)
 
                     #
                     # trainable_params = tf.trainable_variables()
@@ -327,16 +345,22 @@ class Seq2seq:
         train_encode_seqs = self.encode_seqs[T_BATCH_SIZE:]
         train_decode_seqs = self.decode_seqs[T_BATCH_SIZE:]
 
+        n_batch = len(train_encode_seqs) // T_BATCH_SIZE
+
         # Train the model
         with self.graph.as_default():
+            if DEBUG:
+                summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
+                summary_writer.add_graph(self.sess.graph)
+                summary_ops = tf.summary.merge_all()
+
+
             for epoch_i in range(1, EPOCH+1):
-                batch_i = 0
                 for cur_batch_pack in self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id):
-                    batch_i += 1
                     inputs, inputs_lens, targets, targets_lens = cur_batch_pack
                     
-                    _, loss = self.sess.run(
-                            [train_op, cost],
+                    _, train_loss, g_step = self.sess.run(
+                            [train_op, cost, global_step],
                             feed_dict={
                                 encoder_input:inputs,
                                 encoder_input_seq_lengths:inputs_lens,
@@ -344,14 +368,30 @@ class Seq2seq:
                                 decoder_target_seq_lengths:targets_lens
                                 }
                             )
+                    print("\r{}/{}".format(g_step, n_batch), end='', flush=True)
 
-                loss = self.sess.run(cost, feed_dict={
-                    encoder_input:valid_inputs,
-                    encoder_input_seq_lengths:valid_inputs_lens,
-                    decoder_target:valid_targets,
-                    decoder_target_seq_lengths:valid_targets_lens
-                    })
-                print("E:{} - valid Loss: {}".format(epoch_i, loss))
+                    if g_step % SHOW_EVERY == 0:
+                        val_loss = self.sess.run(cost, feed_dict={
+                            encoder_input:valid_inputs,
+                            encoder_input_seq_lengths:valid_inputs_lens,
+                            decoder_target:valid_targets,
+                            decoder_target_seq_lengths:valid_targets_lens
+                            })
+                        print("E:{}/{} B:{} - train loss: {}    valid loss: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss))
+
+                    if DEBUG and g_step % SUMMARY_EVERY == 0:
+                        summary_info = self.sess.run(summary_ops, feed_dict={
+                            encoder_input:inputs,
+                            encoder_input_seq_lengths:inputs_lens,
+                            decoder_target:targets,
+                            decoder_target_seq_lengths:targets_lens
+                            })
+                        summary_writer.add_summary(summary_info, self.sess.run(global_step))
+
+                    if g_step > MAX_G_STEP:
+                        break
+                if g_step > MAX_G_STEP:
+                    break
 
             # Save model at the end of the training
             if not os.path.isdir(self.model_ckpt_dir):
@@ -464,20 +504,29 @@ class TextProcessor:
 
         new_content = ''.join(new_lines)
 
-        with open(self.file_path, 'w') as fp:
-            fp.write(new_content)
-
         if not inplace:
             return new_lines
+
+        else:
+            with open(self.file_path+'.proc', 'w') as fp:
+                fp.write(new_content)
+            return self.file_path+'.proc'
+
 
 
 if __name__ == '__main__':
     model = Seq2seq()
-    encode_file_path = './data/test_en_fr/test_enc.txt'
-    decode_file_path = './data/test_en_fr/test_dec.txt'
+    encode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.en.proc'
+    decode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr.proc'
     # model.load('./models/62256761725179498542')
     model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
 
+    # file1_path = '/Users/pd/Downloads/europarl-v7.fr-en.en'
+    # file2_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr'
+
+    # tp = TextProcessor()
+    # tp.read(file1_path).process(inplace=True)
+    # tp.read(file2_path).process(inplace=True)
