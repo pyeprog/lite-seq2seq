@@ -31,8 +31,8 @@ VOCAB_COUNT_THRES = 2
 MAX_VOCAB = 4000
 
 LEARNING_RATE = 1e-4
-DECAY_RATE = 0.95
-DECAY_STEP = 50
+DECAY_RATE = 0.99
+DECAY_STEP = 500
 
 SHOW_EVERY = 50
 SUMMARY_EVERY = 10
@@ -92,7 +92,10 @@ class Seq2seq:
 
         word_count = Counter()
         vocabs = set(['<PAD>', '<UNK>', '<GO>', '<EOS>'])
-        for line in lines:
+        n_lines = len(lines)
+        for i, line in enumerate(lines):
+            if i % 100 == 0:
+                print('\rParsing dictionary {}/{}'.format(i+1, n_lines), end='', flush=True)
             for word in line.split():
                 word = word.lower()
                 word_count[word] += 1
@@ -100,6 +103,7 @@ class Seq2seq:
         vocabs = ['<PAD>', '<UNK>', '<GO>', '<EOS>'] + [word_tuple[0] for word_tuple in word_count.most_common()[:MAX_VOCAB] if word_tuple[1] >= VOCAB_COUNT_THRES]
         int_to_vocab = {i:word for i, word in enumerate(vocabs)}
         vocab_to_int = {word:i for i, word in enumerate(vocabs)}
+        print('\tFinished')
         return int_to_vocab, vocab_to_int
 
     
@@ -109,11 +113,16 @@ class Seq2seq:
 
         encoded_lines = []
         unk_id = vocab_to_int['<UNK>']
-        for line in lines:
+        n_lines = len(lines)
+        for i, line in enumerate(lines):
+            if i % 100 == 0:
+                print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
+
             cur = [vocab_to_int.get(word.lower(), unk_id) for word in line.split()]
             if len(cur) > 0:
                 encoded_lines.append(cur)
 
+        print('\tFinished')
         return encoded_lines
 
 
@@ -302,16 +311,16 @@ class Seq2seq:
                     train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
 
 
-                    if DEBUG:
-                        tf.summary.scalar('seq_loss', cost)
-                        tf.summary.scalar('learning_rate', optimizer._lr)
-
-                    #
+                    # # Clip by global norm
                     # trainable_params = tf.trainable_variables()
                     # gradients = tf.gradients(cost, trainable_params)
                     # capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
                     # optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
                     # train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), name='train_op')
+
+                    if DEBUG:
+                        tf.summary.scalar('seq_loss', cost)
+                        tf.summary.scalar('learning_rate', optimizer._lr)
 
                 self.sess = tf.Session()
                 self.sess.run(tf.global_variables_initializer())
@@ -368,7 +377,7 @@ class Seq2seq:
                                 decoder_target_seq_lengths:targets_lens
                                 }
                             )
-                    print("\r{}/{}".format(g_step, n_batch), end='', flush=True)
+                    print("\r{}/{} ".format(g_step, n_batch), end='', flush=True)
 
                     if g_step % SHOW_EVERY == 0:
                         val_loss = self.sess.run(cost, feed_dict={
@@ -377,7 +386,7 @@ class Seq2seq:
                             decoder_target:valid_targets,
                             decoder_target_seq_lengths:valid_targets_lens
                             })
-                        print("E:{}/{} B:{} - train loss: {}    valid loss: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss))
+                        print("E:{}/{} B:{}\t-\ttrain loss: {}\tvalid loss: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss))
 
                     if DEBUG and g_step % SUMMARY_EVERY == 0:
                         summary_info = self.sess.run(summary_ops, feed_dict={
@@ -472,7 +481,7 @@ class TextProcessor:
         self.proc_fn_list.append( lambda x: re.sub('\w\.{,1}\w\.*', lambda y:y.group().replace('.',''), x) )
         self.proc_fn_list.append( lambda x: re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x) )
         self.proc_fn_list.append( lambda x: re.sub('[,.!?;]+', lambda y:' '+y.group()+' ', x) )
-        self.proc_fn_list.append( lambda x: re.sub('[\"\`\(\)\[\]\{\}]+', '', x) )
+        self.proc_fn_list.append( lambda x: re.sub('[\=\<\>\"\`\(\)\[\]\{\}]+', '', x) )
         self.proc_fn_list.append( lambda x: re.sub('\'+s*', '', x) )
 
         # self.proc_fn_list.append( lambda string: re.sub('', '', string) )
@@ -518,6 +527,7 @@ if __name__ == '__main__':
     model = Seq2seq()
     encode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.en.proc'
     decode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr.proc'
+
     # model.load('./models/62256761725179498542')
     model.train(encode_file_path, decode_file_path)
     while True:
@@ -528,5 +538,6 @@ if __name__ == '__main__':
     # file2_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr'
 
     # tp = TextProcessor()
-    # tp.read(file1_path).process(inplace=True)
-    # tp.read(file2_path).process(inplace=True)
+    # new_lines = tp.read(file1_path).process()
+    # print(new_lines)
+    # # tp.read(file2_path).process()
