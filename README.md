@@ -1,5 +1,5 @@
 # LiteSeq2Seq - a light weight seq2seq core
-[toc]
+[TOC]
 
 ## The Core
 It's a lite model that can be trained on two relevant sequences. After training, the model can predict sequence given another sequence.
