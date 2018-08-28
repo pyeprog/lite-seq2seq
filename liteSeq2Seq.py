@@ -28,7 +28,7 @@ EPOCH = 1
 MAX_G_STEP = 500
 
 VOCAB_COUNT_THRES = 2
-MAX_VOCAB = 4000
+MAX_VOCAB = 5000
 
 LEARNING_RATE = 1e-4
 DECAY_RATE = 0.99
@@ -36,6 +36,7 @@ DECAY_STEP = 500
 
 SHOW_EVERY = 50
 SUMMARY_EVERY = 10
+SAVE_EVERY = 50
 DEBUG = 1
 
 # Suppress warning log
@@ -94,7 +95,7 @@ class Seq2seq:
         vocabs = set(['<PAD>', '<UNK>', '<GO>', '<EOS>'])
         n_lines = len(lines)
         for i, line in enumerate(lines):
-            if i % 100 == 0:
+            if i % 100 == 0 or i + 1 == n_lines:
                 print('\rParsing dictionary {}/{}'.format(i+1, n_lines), end='', flush=True)
             for word in line.split():
                 word = word.lower()
@@ -115,7 +116,7 @@ class Seq2seq:
         unk_id = vocab_to_int['<UNK>']
         n_lines = len(lines)
         for i, line in enumerate(lines):
-            if i % 100 == 0:
+            if i % 100 == 0 or i + 1 == n_lines:
                 print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
 
             cur = [vocab_to_int.get(word.lower(), unk_id) for word in line.split()]
@@ -322,8 +323,20 @@ class Seq2seq:
                         tf.summary.scalar('seq_loss', cost)
                         tf.summary.scalar('learning_rate', optimizer._lr)
 
+                # Save op to collection for further use
+                tf.add_to_collection("optimization", train_op)
+                tf.add_to_collection("optimization", cost)
+
                 self.sess = tf.Session()
                 self.sess.run(tf.global_variables_initializer())
+
+                # Save dictionary
+                if not os.path.isdir(self.model_ckpt_dir):
+                    os.mkdir(self.model_ckpt_dir)
+
+                with open(os.path.join(self.model_ckpt_dir, 'dictionary'), 'wb') as fp:
+                    dictionary = (self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int)
+                    pkl.dump(dictionary, fp)
 
         else:
             # Pre-trained model has loaded
@@ -356,8 +369,13 @@ class Seq2seq:
 
         n_batch = len(train_encode_seqs) // T_BATCH_SIZE
 
+
+
         # Train the model
         with self.graph.as_default():
+            # Create a saver
+            saver = tf.train.Saver(max_to_keep=1)
+
             if DEBUG:
                 summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
                 summary_writer.add_graph(self.sess.graph)
@@ -387,6 +405,9 @@ class Seq2seq:
                             decoder_target_seq_lengths:valid_targets_lens
                             })
                         print("E:{}/{} B:{}\t-\ttrain loss: {}\tvalid loss: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss))
+                    
+                    if g_step % SAVE_EVERY == 0:
+                        saver.save(self.sess, self.model_ckpt_path)
 
                     if DEBUG and g_step % SUMMARY_EVERY == 0:
                         summary_info = self.sess.run(summary_ops, feed_dict={
@@ -401,21 +422,6 @@ class Seq2seq:
                         break
                 if g_step > MAX_G_STEP:
                     break
-
-            # Save model at the end of the training
-            if not os.path.isdir(self.model_ckpt_dir):
-                os.mkdir(self.model_ckpt_dir)
-
-            tf.add_to_collection("optimization", train_op)
-            tf.add_to_collection("optimization", cost)
-
-            saver = tf.train.Saver(max_to_keep=1)
-            saver.save(self.sess, self.model_ckpt_path)
-            with open(os.path.join(self.model_ckpt_dir, 'dictionary'), 'wb') as fp:
-                dictionary = (self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int)
-                pkl.dump(dictionary, fp)
-            print("Model has been trained and saved")
-
 
 
     def predict(self, encode_str):
