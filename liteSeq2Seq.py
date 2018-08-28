@@ -36,7 +36,7 @@ DECAY_STEP = 500
 
 SHOW_EVERY = 50
 SUMMARY_EVERY = 10
-SAVE_EVERY = 50
+SAVE_EVERY = 100
 DEBUG = 1
 
 # Suppress warning log
@@ -48,6 +48,8 @@ class Seq2seq:
         self._id = (str(random())[2:] + str(random())[2:])[:20]
         self.model_ckpt_dir = os.path.join(MODEL_PATH, self._id)
         self.model_ckpt_path = os.path.join(self.model_ckpt_dir, 'checkpoint.ckpt')
+        
+        self.tp = TextProcessor()
 
     def __delete__(self):
         if hasattr(self, 'sess'):
@@ -326,6 +328,7 @@ class Seq2seq:
                 # Save op to collection for further use
                 tf.add_to_collection("optimization", train_op)
                 tf.add_to_collection("optimization", cost)
+                tf.add_to_collection("optimization", global_step)
 
                 self.sess = tf.Session()
                 self.sess.run(tf.global_variables_initializer())
@@ -353,6 +356,7 @@ class Seq2seq:
                 decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
                 train_op = tf.get_collection("optimization")[0]
                 cost = tf.get_collection("optimization")[1]
+                global_step = tf.get_collection("optimization")[2]
 
 
         encode_pad_id = self.encoder_vocab_to_int['<PAD>']
@@ -369,8 +373,6 @@ class Seq2seq:
 
         n_batch = len(train_encode_seqs) // T_BATCH_SIZE
 
-
-
         # Train the model
         with self.graph.as_default():
             # Create a saver
@@ -380,10 +382,16 @@ class Seq2seq:
                 summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
                 summary_writer.add_graph(self.sess.graph)
                 summary_ops = tf.summary.merge_all()
+            
+            # Pass trained batch
+            g_step = self.sess.run(global_step) % n_batch
+            batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id)
+            for _ in range(g_step):
+                _ = next(batch_generator)
 
-
+            # Start training
             for epoch_i in range(1, EPOCH+1):
-                for cur_batch_pack in self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id):
+                for cur_batch_pack in batch_generator:
                     inputs, inputs_lens, targets, targets_lens = cur_batch_pack
                     
                     _, train_loss, g_step = self.sess.run(
@@ -422,6 +430,9 @@ class Seq2seq:
                         break
                 if g_step > MAX_G_STEP:
                     break
+                
+                # Get a new batch-generator
+                batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id)
 
 
     def predict(self, encode_str):
@@ -433,6 +444,7 @@ class Seq2seq:
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
 
         # Parse encode_str
+        encode_str = self.tp.process_str(encode_str)
         inputs = [[self.encoder_vocab_to_int.get(word, encoder_unk_id) for word in encode_str.split()]]
         inputs_lens = [len(line) for line in inputs]
 
@@ -527,6 +539,15 @@ class TextProcessor:
                 fp.write(new_content)
             return self.file_path+'.proc'
 
+    def process_str(self, string, proc_fn_list=[]):
+        if len(proc_fn_list) == 0:
+            proc_fn_list = self.proc_fn_list
+
+        for fn in proc_fn_list:
+            string = fn(string)
+
+        return string
+
 
 
 if __name__ == '__main__':
@@ -534,7 +555,7 @@ if __name__ == '__main__':
     encode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.en.proc'
     decode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr.proc'
 
-    # model.load('./models/62256761725179498542')
+    model.load('./models/94193666769558898599')
     model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
