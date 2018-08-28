@@ -1,4 +1,6 @@
 # LiteSeq2Seq - a light weight seq2seq core
+[toc]
+
 ## The Core
 It's a lite model that can be trained on two relevant sequences. After training, the model can predict sequence given another sequence.
 This project is aiming at provide a way to manipulate the power of seq2seq simply. Simplicity is the other facet of reusability. 
@@ -44,8 +46,7 @@ tp.read(file_path).process(inplace=True) #Save the processed data to file named 
 ```
 
 ## Current state
-~~We meet some problem on training seq2seq with GPU. It works okay with CPU though.~~
-Now it can be trained on CPU or GPU. 
-Please keep in mind that it is still easy to use up your free memory if you have a large network or set the BATCH\_SIZE to a large number.
+It can be trained on CPU or GPU. 
+Please keep in mind that it's pretty easy to use up your free memory if you have a large network or set the BATCH\_SIZE to a large number.
 
 
