@@ -5,6 +5,7 @@ import os
 import re
 from collections import Counter
 from random import random
+from multiprocessing import Pool
 
 # GatherTree ops hasn't happened. Adding import to force library to load
 # Fixed the KeyError: GatherTree
@@ -21,11 +22,13 @@ EMBEDDING_DIM = 128
 ENCODER_RNN_SIZE = 256
 ENCODER_RNN_LAYERS_N = 3
 BEAM_WIDTH = 5
+DROPOUT_KEEP_PROB = 0.8
+VALID_PORTION = 0.1
 T_BATCH_SIZE = 32
 I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.
 EPOCH = 1
-MAX_G_STEP = 500
+MAX_G_STEP = 200
 
 VOCAB_COUNT_THRES = 2
 MAX_VOCAB = 5000
@@ -34,13 +37,13 @@ LEARNING_RATE = 1e-4
 DECAY_RATE = 0.99
 DECAY_STEP = 500
 
-SHOW_EVERY = 50
-SUMMARY_EVERY = 10
-SAVE_EVERY = 100
+SHOW_EVERY = 5
+SUMMARY_EVERY = 1
+SAVE_EVERY = 5
 DEBUG = 1
 
 # Suppress warning log
-tf.logging.set_verbosity(tf.logging.ERROR)
+tf.logging.set_verbosity(tf.logging.FATAL)
 
 
 class Seq2seq:
@@ -64,29 +67,95 @@ class Seq2seq:
         return self.model_ckpt_dir
 
 
-    def _rnn_cell(self, rnn_size):
-        return tf.nn.rnn_cell.LSTMCell(rnn_size,
+    def _get_ngrams(self, segment, max_order):
+        ngram_counts = Counter()
+        for order in range(1, max_order + 1):
+            for i in range(0, len(segment) - order + 1):
+              ngram = tuple(segment[i:i+order])
+              ngram_counts[ngram] += 1
+            return ngram_counts
+
+
+    def _bleu(self, gen_lists, refer_lists, max_order=4, smooth=False):
+        matches_by_order = [0] * max_order
+        possible_matches_by_order = [0] * max_order
+        refer_length = 0
+        gen_length = 0
+
+        for (refer_list, gen_list) in zip(refer_lists, gen_lists):
+            refer_length += len(refer_list)
+            gen_length += len(gen_list)
+
+            refer_ngram_counts = self._get_ngrams(refer_list, max_order)
+            gen_ngram_counts = self._get_ngrams(gen_list, max_order)
+            overlap = gen_ngram_counts & refer_ngram_counts
+
+            for ngram in overlap:
+                matches_by_order[len(ngram)-1] += overlap[ngram]
+
+            for order in range(1, max_order+1):
+                possible_matches = len(gen_list) - order + 1
+                if possible_matches > 0:
+                    possible_matches_by_order[order-1] += possible_matches
+
+        precisions = [0] * max_order
+        for i in range(0, max_order):
+            if smooth:
+                precisions[i] = ((matches_by_order[i] + 1.) /
+                               (possible_matches_by_order[i] + 1.))
+            else:
+                if possible_matches_by_order[i] > 0:
+                    precisions[i] = (float(matches_by_order[i]) /
+                                 possible_matches_by_order[i])
+                else:
+                    precisions[i] = 0.0
+
+        if min(precisions) > 0:
+            p_log_sum = sum((1. / max_order) * np.log(p) for p in precisions)
+            geo_mean = np.exp(p_log_sum)
+        else:
+            geo_mean = 0.0
+
+        ratio = float(gen_length) / refer_length
+
+        if ratio > 1.0:
+            bp = 1.
+        else:
+            bp = np.exp(1 - 1. / ratio)
+
+        bleu = geo_mean * bp
+
+        return bleu
+
+
+    def _rnn_cell(self, rnn_size, dropout_keep_prob):
+        lstm_cell = tf.nn.rnn_cell.LSTMCell(rnn_size,
                 initializer=tf.random_uniform_initializer(-0.1, 0.1))
+        return tf.contrib.rnn.DropoutWrapper(lstm_cell, output_keep_prob=dropout_keep_prob)
 
 
-    def _padding_batch(self, inputs, targets, batch_size=T_BATCH_SIZE, input_padding_val=0, target_padding_val=0):
+    def _padding_batch(self, inputs, targets, batch_size=T_BATCH_SIZE, input_padding_val=0, target_padding_val=0, forever=False):
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
-        for i in range(0, len(targets) // batch_size):
-            start_i = i * batch_size
+        while True:
+            for i in range(0, len(targets) // batch_size):
+                start_i = i * batch_size
 
-            batch_inputs = inputs[start_i: start_i+batch_size]
-            batch_targets = [line+[decoder_eos_id] for line in targets[start_i: start_i+batch_size]]
+                batch_inputs = inputs[start_i: start_i+batch_size]
+                batch_targets = [line+[decoder_eos_id] for line in targets[start_i: start_i+batch_size]]
 
-            batch_inputs_lens = [len(line) for line in batch_inputs]
-            batch_targets_lens = [len(line) for line in batch_targets]
+                batch_inputs_lens = [len(line) for line in batch_inputs]
+                batch_targets_lens = [len(line) for line in batch_targets]
 
-            inputs_cur_maxLen = np.max(batch_inputs_lens)
-            targets_cur_maxLen = np.max(batch_targets_lens)
+                inputs_cur_maxLen = np.max(batch_inputs_lens)
+                targets_cur_maxLen = np.max(batch_targets_lens)
 
-            padding_batch_inputs = np.array([line + [input_padding_val]*(inputs_cur_maxLen-len(line)) for line in batch_inputs])
-            padding_batch_targets = np.array([line + [target_padding_val]*(targets_cur_maxLen-len(line)) for line in batch_targets])
+                padding_batch_inputs = np.array([line + [input_padding_val]*(inputs_cur_maxLen-len(line)) for line in batch_inputs])
+                padding_batch_targets = np.array([line + [target_padding_val]*(targets_cur_maxLen-len(line)) for line in batch_targets])
 
-            yield padding_batch_inputs, batch_inputs_lens, padding_batch_targets, batch_targets_lens
+                yield padding_batch_inputs, batch_inputs_lens, padding_batch_targets, batch_targets_lens
+            
+            if not forever:
+                break
 
     
     def _parse_dict(self, file_path):
@@ -129,7 +198,27 @@ class Seq2seq:
         return encoded_lines
 
 
+    @staticmethod
+    def unwrap_self_train(*arg, **kwarg):
+        '''
+         Process wrapper, since multiprocessing cannot call instance method
+         You need a outer function
+        '''
+        return Seq2seq._train(*arg, **kwarg)
+
+    
     def train(self, encode_file_path, decode_file_path):
+        '''
+        A process wrapper for train method
+        If you use gpu to train the model, memory will not be released, even after closing session
+        However, if the process is killed, memory will be released.
+        '''
+        with Pool(1) as process:
+            params = (encode_file_path, decode_file_path)
+            process.apply(self.unwrap_self_train, (self, *params))
+
+
+    def _train(self, encode_file_path, decode_file_path):
         '''
         Train the model for the first time or retrain the model
         @encode_file_path: str, the path of the encoder training file
@@ -158,6 +247,7 @@ class Seq2seq:
                         [tf.fill([T_BATCH_SIZE,1], self.decoder_vocab_to_int['<GO>']), 
                         tf.strided_slice(decoder_target, [0,0], [T_BATCH_SIZE,-1], [1,1])],
                         1)
+                dropout_keep_prob = tf.placeholder(tf.float32, name='dropout')
                 
                 ## why does it need sequence length placeholder? explain
                 encoder_input_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='source_lens')
@@ -168,7 +258,7 @@ class Seq2seq:
                     encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM)
 
                     # # To use stacked uni-directional rnn encoder, open this
-                    # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
                     # encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
                     # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
                     # print(encoder_output.get_shape())
@@ -177,15 +267,18 @@ class Seq2seq:
 
                     # To use stacked bi-directional rnn encoder, open this
                     # Explain for the state concat, explain
-                    rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
-                    rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
 
                     encoder_output, forward_final_state, backward_final_state = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
                             rnn_cell_list_forward, rnn_cell_list_backward, encoder_wordvec,
                             sequence_length=encoder_input_seq_lengths, time_major=False,
                             dtype=tf.float32
                             )
+                    
 
+                    # maybe the encoder_final_state can be updated
+                    # Use tensorboard to check it
                     encoder_final_state = []
                     for forward_cell_state, backward_cell_state in zip(forward_final_state, backward_final_state):
                         concated_state = tf.concat([forward_cell_state.c, backward_cell_state.c], -1)
@@ -193,12 +286,15 @@ class Seq2seq:
                         encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
                     encoder_final_state = tuple(encoder_final_state)
 
-
+                    if DEBUG:
+                        tf.summary.histogram('encoder_output', encoder_output)
+                        tf.summary.histogram('encoder_forward_state', forward_final_state)
+                        tf.summary.histogram('encoder_backward_state', backward_final_state)
 
                 with tf.variable_scope('decoder_prepare'):
                     decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM]))
                     decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input)
-                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
                     decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
                     decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab), use_bias=False,
                             kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
@@ -296,6 +392,7 @@ class Seq2seq:
                 with tf.variable_scope('optimization'):
                     training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
                     inference_logits = tf.identity(inference_decoder_output.predicted_ids[:,:,0], name='predictions')
+                    decoder_output = tf.identity(training_decoder_output.sample_id, name='training_output')
 
                     # Why mask, explain
                     mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
@@ -354,6 +451,8 @@ class Seq2seq:
                 encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
                 decoder_target = self.graph.get_tensor_by_name('targets:0')
                 decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
+                dropout_keep_prob = self.graph.get_tensor_by_name('dropout:0')
+                decoder_output = self.graph.get_tensor_by_name('optimization/training_output:0')
                 train_op = tf.get_collection("optimization")[0]
                 cost = tf.get_collection("optimization")[1]
                 global_step = tf.get_collection("optimization")[2]
@@ -363,13 +462,13 @@ class Seq2seq:
         decode_pad_id = self.decoder_vocab_to_int['<PAD>']
 
         # Validate set reserve
-        valid_encode_seqs = self.encode_seqs[:T_BATCH_SIZE]
-        valid_decode_seqs = self.decode_seqs[:T_BATCH_SIZE]
-        valid_batch_pack = next(self._padding_batch(valid_encode_seqs, valid_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id))
-        valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
+        n_valid_data = int(len(self.encode_seqs) * VALID_PORTION) // T_BATCH_SIZE * T_BATCH_SIZE
+        valid_encode_seqs = self.encode_seqs[:n_valid_data]
+        valid_decode_seqs = self.decode_seqs[:n_valid_data]
+        valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id, forever=True)
 
-        train_encode_seqs = self.encode_seqs[T_BATCH_SIZE:]
-        train_decode_seqs = self.decode_seqs[T_BATCH_SIZE:]
+        train_encode_seqs = self.encode_seqs[n_valid_data:]
+        train_decode_seqs = self.decode_seqs[n_valid_data:]
 
         n_batch = len(train_encode_seqs) // T_BATCH_SIZE
 
@@ -400,29 +499,37 @@ class Seq2seq:
                                 encoder_input:inputs,
                                 encoder_input_seq_lengths:inputs_lens,
                                 decoder_target:targets,
-                                decoder_target_seq_lengths:targets_lens
+                                decoder_target_seq_lengths:targets_lens,
+                                dropout_keep_prob: DROPOUT_KEEP_PROB
                                 }
                             )
                     print("\r{}/{} ".format(g_step, n_batch), end='', flush=True)
 
                     if g_step % SHOW_EVERY == 0:
-                        val_loss = self.sess.run(cost, feed_dict={
+                        valid_batch_pack = next(valid_batch_generator)
+                        valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
+
+                        val_loss, prediction_lists = self.sess.run([cost, decoder_output], feed_dict={
                             encoder_input:valid_inputs,
                             encoder_input_seq_lengths:valid_inputs_lens,
                             decoder_target:valid_targets,
-                            decoder_target_seq_lengths:valid_targets_lens
+                            decoder_target_seq_lengths:valid_targets_lens,
+                            dropout_keep_prob: 1.0
                             })
-                        print("E:{}/{} B:{}\t-\ttrain loss: {}\tvalid loss: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss))
+
+                        bleu_score = self._bleu(prediction_lists, valid_targets)
+                        print("E:{}/{} B:{}\t-\ttrain loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
                     
                     if g_step % SAVE_EVERY == 0:
-                        saver.save(self.sess, self.model_ckpt_path)
+                        saver.save(self.sess, self.model_ckpt_path, write_meta_graph=(g_step==0))
 
                     if DEBUG and g_step % SUMMARY_EVERY == 0:
                         summary_info = self.sess.run(summary_ops, feed_dict={
                             encoder_input:inputs,
                             encoder_input_seq_lengths:inputs_lens,
                             decoder_target:targets,
-                            decoder_target_seq_lengths:targets_lens
+                            decoder_target_seq_lengths:targets_lens,
+                            dropout_keep_prob: DROPOUT_KEEP_PROB
                             })
                         summary_writer.add_summary(summary_info, self.sess.run(global_step))
 
@@ -437,7 +544,7 @@ class Seq2seq:
 
     def predict(self, encode_str):
         if not hasattr(self, 'sess'):
-            raise RuntimeError('Your model is untrained, please train it first')
+            self.load(self.model_ckpt_dir)
 
         encoder_unk_id = self.encoder_vocab_to_int['<UNK>']
         decoder_pad_id = self.decoder_vocab_to_int['<PAD>']
@@ -452,6 +559,7 @@ class Seq2seq:
             encoder_input = self.graph.get_tensor_by_name('inputs:0')
             encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
             decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
+            dropout_keep_prob = self.graph.get_tensor_by_name('dropout:0')
             prediction = self.graph.get_tensor_by_name('optimization/predictions:0')
 
             predict_list = self.sess.run(
@@ -459,6 +567,7 @@ class Seq2seq:
                     feed_dict={
                         encoder_input:inputs*I_BATCH_SIZE,
                         encoder_input_seq_lengths:inputs_lens*I_BATCH_SIZE,
+                        dropout_keep_prob: 1.0
                         }
                     )
 
@@ -468,14 +577,14 @@ class Seq2seq:
 
     def load(self, path):
         if not os.path.isdir(path):
-            raise ValueError('{} is not valid path'.format(path))
+            raise ValueError('{} is not valid path, your model is probably untrained'.format(path))
 
         self._id = os.path.basename(path)
         self.model_ckpt_dir = path
         self.model_ckpt_path = os.path.join(path, 'checkpoint.ckpt')
         
         if not os.path.isfile(os.path.join(path, 'checkpoint')):
-            raise ValueError('There is no checkpoint file in {}'.format(path))
+            raise ValueError('There is no checkpoint file in {}, your model has not finished training'.format(path))
 
         if not os.path.isfile(os.path.join(path, 'dictionary')):
             raise ValueError('There is no dictionary file in {}'.format(path))
@@ -492,18 +601,25 @@ class Seq2seq:
 
 class TextProcessor:
     def __init__(self):
-        self.proc_fn_list = []
-        self.proc_fn_list.append( lambda x: re.sub('\(.*?\)', '', x) )
-        self.proc_fn_list.append( lambda x: re.sub('\[.*?\]', '', x) )
-        self.proc_fn_list.append( lambda x: re.sub('\{.*?\}', '', x) )
-        self.proc_fn_list.append( lambda x: re.sub('\w\.{,1}\w\.*', lambda y:y.group().replace('.',''), x) )
-        self.proc_fn_list.append( lambda x: re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x) )
-        self.proc_fn_list.append( lambda x: re.sub('[,.!?;]+', lambda y:' '+y.group()+' ', x) )
-        self.proc_fn_list.append( lambda x: re.sub('[\=\<\>\"\`\(\)\[\]\{\}]+', '', x) )
-        self.proc_fn_list.append( lambda x: re.sub('\'+s*', '', x) )
+        self.proc_fn_list = [self.proc1, self.proc2, self.proc3, self.proc4, self.proc5, self.proc6, self.proc7, self.proc8]
 
-        # self.proc_fn_list.append( lambda string: re.sub('', '', string) )
-
+    # pickle cann't dump lambda function in py3, so...
+    def proc1(self, x):
+        return re.sub('\(.*?\)', '', x)
+    def proc2(self, x):
+        return re.sub('\[.*?\]', '', x)
+    def proc3(self, x):
+        return re.sub('\{.*?\}', '', x)
+    def proc4(self, x):
+        return re.sub('\w\.{,1}\w\.*', lambda y:y.group().replace('.',''), x)
+    def proc5(self, x):
+        return re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x)
+    def proc6(self, x):
+        return re.sub('[,.!?;]+', lambda y:' '+y.group()+' ', x)
+    def proc7(self, x):
+        return re.sub('[\=\<\>\"\`\(\)\[\]\{\}]+', '', x)
+    def proc8(self, x):
+        return re.sub('\'+s*', '', x)
 
     def read(self, file_path):
         if not os.path.isfile(file_path):
@@ -552,10 +668,10 @@ class TextProcessor:
 
 if __name__ == '__main__':
     model = Seq2seq()
-    encode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.en.proc'
-    decode_file_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr.proc'
+    encode_file_path = './data/test_en_fr/test_enc.txt'
+    decode_file_path = './data/test_en_fr/test_dec.txt'
 
-    model.load('./models/94193666769558898599')
+    # model.load('./models/94193666769558898599')
     model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
