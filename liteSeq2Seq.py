@@ -19,7 +19,7 @@ if not os.path.isdir(MODEL_PATH):
 
 # Hyper params
 EMBEDDING_DIM = 128
-ENCODER_RNN_SIZE = 256
+ENCODER_RNN_SIZE = 256 # even number only
 ENCODER_RNN_LAYERS_N = 3
 BEAM_WIDTH = 5
 DROPOUT_KEEP_PROB = 0.8
@@ -71,9 +71,9 @@ class Seq2seq:
         ngram_counts = Counter()
         for order in range(1, max_order + 1):
             for i in range(0, len(segment) - order + 1):
-              ngram = tuple(segment[i:i+order])
-              ngram_counts[ngram] += 1
-            return ngram_counts
+                ngram = tuple(segment[i:i+order])
+                ngram_counts[ngram] += 1
+        return ngram_counts
 
 
     def _bleu(self, gen_lists, refer_lists, max_order=4, smooth=False):
@@ -422,6 +422,12 @@ class Seq2seq:
                         tf.summary.scalar('seq_loss', cost)
                         tf.summary.scalar('learning_rate', optimizer._lr)
 
+                        trainable_params = tf.trainable_variables()
+                        gradients = tf.gradients(cost, trainable_params)
+                        for param, gradient in zip(trainable_params, gradients):
+                            tf.summary.histogram(param.name, gradient)
+
+
                 # Save op to collection for further use
                 tf.add_to_collection("optimization", train_op)
                 tf.add_to_collection("optimization", cost)
@@ -503,7 +509,7 @@ class Seq2seq:
                                 dropout_keep_prob: DROPOUT_KEEP_PROB
                                 }
                             )
-                    print("\r{}/{} ".format(g_step, n_batch), end='', flush=True)
+                    print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
 
                     if g_step % SHOW_EVERY == 0:
                         valid_batch_pack = next(valid_batch_generator)
@@ -518,7 +524,7 @@ class Seq2seq:
                             })
 
                         bleu_score = self._bleu(prediction_lists, valid_targets)
-                        print("E:{}/{} B:{}\t-\ttrain loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
+                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
                     
                     if g_step % SAVE_EVERY == 0:
                         saver.save(self.sess, self.model_ckpt_path, write_meta_graph=(g_step==0))
