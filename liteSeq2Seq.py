@@ -131,7 +131,7 @@ class Seq2seq:
     def _rnn_cell(self, rnn_size, dropout_keep_prob):
         lstm_cell = tf.nn.rnn_cell.LSTMCell(rnn_size,
                 initializer=tf.random_uniform_initializer(-0.1, 0.1))
-        return tf.contrib.rnn.DropoutWrapper(lstm_cell, output_keep_prob=dropout_keep_prob)
+        return tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=dropout_keep_prob, output_keep_prob=1.0)
 
 
     def _padding_batch(self, inputs, targets, batch_size=T_BATCH_SIZE, input_padding_val=0, target_padding_val=0, forever=False):
