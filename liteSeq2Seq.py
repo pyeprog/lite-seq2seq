@@ -289,198 +289,201 @@ class Seq2seq:
                 # Build whole model and Get training_logits
 
                 ###### ENCODER ######
-                encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM,
-                        initializer=tf.initializers.random_uniform(-0.1,0.1))
-                
-                # reshape_encoder_input = tf.reshape(encoder_input, [])
-                # encoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.encoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_weight')
-                # encoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_bias')
-                # encoder_wordvec = tf.nn.embedding_lookup(encoder_embedding_weights, encoder_input) #+ encoder_embedding_bias
+                with tf.variable_scope('encoder'):
+                    encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM,
+                            initializer=tf.initializers.random_uniform(-0.1,0.1))
+                    
+                    # reshape_encoder_input = tf.reshape(encoder_input, [])
+                    # encoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.encoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_weight')
+                    # encoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_bias')
+                    # encoder_wordvec = tf.nn.embedding_lookup(encoder_embedding_weights, encoder_input) #+ encoder_embedding_bias
 
-                # # To use stacked uni-directional rnn encoder, open this
-                # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
-                # encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
+                    # # To use stacked uni-directional rnn encoder, open this
+                    # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    # encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+                    # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
 
-                # # print(encoder_output.get_shape())
-                # # print(encoder_final_state)
+                    # # print(encoder_output.get_shape())
+                    # # print(encoder_final_state)
 
 
-                # To use stacked bi-directional rnn encoder, open this
-                # Explain for the state concat, explain
-                rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
-                rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    # To use stacked bi-directional rnn encoder, open this
+                    # Explain for the state concat, explain
+                    rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
 
-                encoder_output, forward_final_state, backward_final_state = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
-                        rnn_cell_list_forward, rnn_cell_list_backward, encoder_wordvec,
-                        sequence_length=encoder_input_seq_lengths, time_major=False,
-                        dtype=tf.float32
-                        )
-                
+                    encoder_output, forward_final_state, backward_final_state = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
+                            rnn_cell_list_forward, rnn_cell_list_backward, encoder_wordvec,
+                            sequence_length=encoder_input_seq_lengths, time_major=False,
+                            dtype=tf.float32
+                            )
+                    
 
-                # maybe the encoder_final_state can be updated
-                # Use tensorboard to check it
-                encoder_final_state = []
-                for forward_cell_state, backward_cell_state in zip(forward_final_state, backward_final_state):
-                    concated_state = tf.concat([forward_cell_state.c, backward_cell_state.c], -1)
-                    concated_output = tf.concat([forward_cell_state.h, backward_cell_state.h], -1)
-                    encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
-                encoder_final_state = tuple(encoder_final_state)
+                    # maybe the encoder_final_state can be updated
+                    # Use tensorboard to check it
+                    encoder_final_state = []
+                    for forward_cell_state, backward_cell_state in zip(forward_final_state, backward_final_state):
+                        concated_state = tf.concat([forward_cell_state.c, backward_cell_state.c], -1)
+                        concated_output = tf.concat([forward_cell_state.h, backward_cell_state.h], -1)
+                        encoder_final_state.append(tf.nn.rnn_cell.LSTMStateTuple(concated_state, concated_output))
+                    encoder_final_state = tuple(encoder_final_state)
 
-                if DEBUG:
-                    tf.summary.histogram('encoder_output', encoder_output)
-                    tf.summary.histogram('encoder_forward_state', forward_final_state)
-                    tf.summary.histogram('encoder_backward_state', backward_final_state)
+                    if DEBUG:
+                        tf.summary.histogram('encoder_output', encoder_output)
+                        tf.summary.histogram('encoder_forward_state', forward_final_state)
+                        tf.summary.histogram('encoder_backward_state', backward_final_state)
 
 
 
 
                 ##### DECODER ######
 
-                decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_weight')
-                # decoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_bias')
-                decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input) #+ decoder_embedding_bias
-                rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
-                decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
-                decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab), use_bias=False,
-                        kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1), name='decoder_output_embedding')
+                with tf.variable_scope('decoder_cell'):
+                    decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_weight')
+                    # decoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_bias')
+                    decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input) #+ decoder_embedding_bias
+                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
+                    decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab), use_bias=False,
+                            kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1), name='decoder_output_embedding')
 
-            # with tf.variable_scope('decoder'):
-                training_helper = tf.contrib.seq2seq.TrainingHelper(
-                        inputs=decoder_wordvec,
-                        sequence_length=decoder_target_seq_lengths,
-                        time_major=False)
+                with tf.variable_scope('decoder'):
+                    training_helper = tf.contrib.seq2seq.TrainingHelper(
+                            inputs=decoder_wordvec,
+                            sequence_length=decoder_target_seq_lengths,
+                            time_major=False)
 
-                # Add attention mechanism
-                attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                        ENCODER_RNN_SIZE, encoder_output,
-                        memory_sequence_length=encoder_input_seq_lengths
-                        )
+                    # Add attention mechanism
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, encoder_output,
+                            memory_sequence_length=encoder_input_seq_lengths
+                            )
 
-                # Wrapper Attention mechanism on plain rnn cell first
-                training_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                        decoder_rnn, attention_mechanism,
-                        attention_layer_size=ENCODER_RNN_SIZE
-                        )
+                    # Wrapper Attention mechanism on plain rnn cell first
+                    training_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            decoder_rnn, attention_mechanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
+                            )
 
-                # Make decoder and it's initial state with wrapped rnn cell
-                training_decoder = tf.contrib.seq2seq.BasicDecoder(
-                        training_decoder,
-                        # decoder_rnn, # Used for vanilla case
-                        training_helper,
-                        training_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
-                        # encoder_final_state, # Used for vanilla case
-                        decoder_output_dense_layer
-                        )
+                    # Make decoder and it's initial state with wrapped rnn cell
+                    training_decoder = tf.contrib.seq2seq.BasicDecoder(
+                            training_decoder,
+                            # decoder_rnn, # Used for vanilla case
+                            training_helper,
+                            training_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
+                            # encoder_final_state, # Used for vanilla case
+                            decoder_output_dense_layer
+                            )
 
-                training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
-                        training_decoder,
-                        impute_finished=True,
-                        maximum_iterations=tf.reduce_max(decoder_target_seq_lengths)
-                        )[0]
+                    training_decoder_output = tf.contrib.seq2seq.dynamic_decode(
+                            training_decoder,
+                            impute_finished=True,
+                            maximum_iterations=tf.reduce_max(decoder_target_seq_lengths)
+                            )[0]
 
-            # with tf.variable_scope('decoder', reuse=True):
-                # Tiled start_token <GO>
-                start_tokens = tf.tile(
-                        tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
-                        [I_BATCH_SIZE],
-                        name='start_tokens')
+                with tf.variable_scope('decoder', reuse=True):
+                    # Tiled start_token <GO>
+                    start_tokens = tf.tile(
+                            tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
+                            [I_BATCH_SIZE],
+                            name='start_tokens')
 
-                # # To use greedy decoder, open this
-                # inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                 #     decoder_embedding_weights,
-                 #     start_tokens,
-                 #     self.decoder_vocab_to_int['<EOS>']
-                 #     )
+                    # # To use greedy decoder, open this
+                    # inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                     #     decoder_embedding_weights,
+                     #     start_tokens,
+                     #     self.decoder_vocab_to_int['<EOS>']
+                     #     )
 
-                # inference_decoder = tf.contrib.seq2seq.BasicDecoder(
-                 #     inference_decoder,
-                 #     # decoder_rnn, # Used for vanilla case
-                 #     inference_helper,
-                 #     inference_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
-                 #     # encoder_final_state, # Used for vanilla case
-                 #     decoder_output_dense_layer
-                 #     )
+                    # inference_decoder = tf.contrib.seq2seq.BasicDecoder(
+                     #     inference_decoder,
+                     #     # decoder_rnn, # Used for vanilla case
+                     #     inference_helper,
+                     #     inference_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
+                     #     # encoder_final_state, # Used for vanilla case
+                     #     decoder_output_dense_layer
+                     #     )
 
-                # To use beam search decoder, open this
-                # Beam search tile
-                tiled_encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=BEAM_WIDTH)
-                tiled_encoder_input_seq_lengths = tf.contrib.seq2seq.tile_batch(encoder_input_seq_lengths, multiplier=BEAM_WIDTH)
-                # Explain the tile state, need explain, tile_batch can handle nested state
-                tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(encoder_final_state, multiplier=BEAM_WIDTH)
+                    # To use beam search decoder, open this
+                    # Beam search tile
+                    tiled_encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=BEAM_WIDTH)
+                    tiled_encoder_input_seq_lengths = tf.contrib.seq2seq.tile_batch(encoder_input_seq_lengths, multiplier=BEAM_WIDTH)
+                    # Explain the tile state, need explain, tile_batch can handle nested state
+                    tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(encoder_final_state, multiplier=BEAM_WIDTH)
 
-                attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                        ENCODER_RNN_SIZE, tiled_encoder_output,
-                        memory_sequence_length=tiled_encoder_input_seq_lengths
-                        )
+                    attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                            ENCODER_RNN_SIZE, tiled_encoder_output,
+                            memory_sequence_length=tiled_encoder_input_seq_lengths
+                            )
 
-                inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
-                        decoder_rnn, attention_mechanism,
-                        attention_layer_size=ENCODER_RNN_SIZE
-                        )
+                    inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
+                            decoder_rnn, attention_mechanism,
+                            attention_layer_size=ENCODER_RNN_SIZE
+                            )
 
-                inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
-                        inference_decoder,
-                        decoder_embedding_weights,
-                        start_tokens,
-                        self.decoder_vocab_to_int['<EOS>'],
-                        inference_decoder.zero_state(I_BATCH_SIZE*BEAM_WIDTH,tf.float32).clone(
-                            cell_state=tiled_encoder_final_state
-                            ),
-                        BEAM_WIDTH,
-                        decoder_output_dense_layer,
-                        length_penalty_weight=0.0
-                        )
+                    inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+                            inference_decoder,
+                            decoder_embedding_weights,
+                            start_tokens,
+                            self.decoder_vocab_to_int['<EOS>'],
+                            inference_decoder.zero_state(I_BATCH_SIZE*BEAM_WIDTH,tf.float32).clone(
+                                cell_state=tiled_encoder_final_state
+                                ),
+                            BEAM_WIDTH,
+                            decoder_output_dense_layer,
+                            length_penalty_weight=0.0
+                            )
 
-                inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
-                        inference_decoder,
-                        impute_finished=False,
-                        maximum_iterations=2*tf.reduce_max(encoder_input_seq_lengths)
-                        )[0]
+                    inference_decoder_output = tf.contrib.seq2seq.dynamic_decode(
+                            inference_decoder,
+                            impute_finished=False,
+                            maximum_iterations=2*tf.reduce_max(encoder_input_seq_lengths)
+                            )[0]
 
 
 
                 ##### OPTIMIZATION #####
+                with tf.variable_scope('optimization', reuse=True):
 
-                # Get train_op
-                training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
-                inference_logits = tf.identity(inference_decoder_output.predicted_ids[:,:,0], name='predictions')
-                # inference_logits = tf.identity(inference_decoder_output.rnn_output, name='predictions')
-                decoder_output = tf.identity(training_decoder_output.sample_id, name='training_output')
+                    # Get train_op
+                    training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
+                    inference_logits = tf.identity(inference_decoder_output.predicted_ids[:,:,0], name='predictions')
+                    # inference_logits = tf.identity(inference_decoder_output.rnn_output, name='predictions')
+                    decoder_output = tf.identity(training_decoder_output.sample_id, name='training_output')
 
-                # Why mask, explain
-                mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
-                
-                global_step = tf.Variable(0, trainable=False)
+                    # Why mask, explain
+                    mask = tf.sequence_mask(decoder_target_seq_lengths, tf.reduce_max(decoder_target_seq_lengths), dtype=tf.float32, name='mask')
+                    
+                    global_step = tf.Variable(0, trainable=False)
 
-                # Cost
-                cost = tf.contrib.seq2seq.sequence_loss(
-                        training_logits,
-                        decoder_target,
-                        mask,
-                        name='cost'
-                        )
+                    # Cost
+                    cost = tf.contrib.seq2seq.sequence_loss(
+                            training_logits,
+                            decoder_target,
+                            mask,
+                            name='cost'
+                            )
 
-                # # Cost alternative
-                # crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                #         labels=decoder_target, logits=training_logits
-                #         )
-                # cost = (tf.reduce_sum(crossent * mask) / T_BATCH_SIZE)
-
-
-                # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
-                # optimizer = tf.train.AdamOptimizer(lr)
-                # gradients = optimizer.compute_gradients(cost)
-                # capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
-                # train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
+                    # # Cost alternative
+                    # crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                    #         labels=decoder_target, logits=training_logits
+                    #         )
+                    # cost = (tf.reduce_sum(crossent * mask) / T_BATCH_SIZE)
 
 
-                # Clip by global norm
-                trainable_params = tf.trainable_variables()
-                gradients = tf.gradients(cost, trainable_params)
-                capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
-                optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
-                train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), global_step=global_step, name='train_op')
+                    # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
+                    # optimizer = tf.train.AdamOptimizer(lr)
+                    # gradients = optimizer.compute_gradients(cost)
+                    # capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
+                    # train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
+
+
+                    # Clip by global norm
+                    trainable_params = tf.trainable_variables()
+                    gradients = tf.gradients(cost, trainable_params)
+                    capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
+                    optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), global_step=global_step, name='train_op')
 
                 if DEBUG:
                     tf.summary.scalar('seq_loss', cost)
@@ -565,9 +568,6 @@ class Seq2seq:
                 for cur_batch_pack in batch_generator:
                     inputs, inputs_lens, targets, targets_lens = cur_batch_pack
 
-                    # print(inputs)
-                    # print(inputs_lens)
-                    
                     _, train_loss, g_step = self.sess.run(
                             [train_op, cost, global_step],
                             feed_dict={
@@ -596,7 +596,7 @@ class Seq2seq:
                         print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
                     
                     if g_step % SAVE_EVERY == 0:
-                        saver.save(self.sess, self.model_ckpt_path, write_meta_graph=(g_step==0))
+                        saver.save(self.sess, self.model_ckpt_path, write_meta_graph=True)
 
                     if DEBUG and g_step % SUMMARY_EVERY == 0:
                         summary_info = self.sess.run(summary_ops, feed_dict={
@@ -607,19 +607,6 @@ class Seq2seq:
                             dropout_keep_prob: DROPOUT_KEEP_PROB
                             })
                         summary_writer.add_summary(summary_info, self.sess.run(global_step))
-
-                        # weights = self.sess.run([encoder_embedding_weights, decoder_embedding_weights])
-                        # wordvec = self.sess.run([encoder_wordvec, decoder_wordvec], feed_dict={
-                        #     encoder_input:inputs,
-                        #     encoder_input_seq_lengths:inputs_lens,
-                        #     decoder_target:targets,
-                        #     decoder_target_seq_lengths:targets_lens,
-                        #     dropout_keep_prob: DROPOUT_KEEP_PROB
-                        #     })
-                        # if g_step > 20:
-                        #     print(wordvec[0])
-                        #     # pprint(wordvec[1])
-
 
                     if g_step > MAX_G_STEP:
                         break
@@ -760,7 +747,7 @@ if __name__ == '__main__':
     decode_file_path = './data/en_fr/small_vocab_fr'
 
     # model.load('./models/94193666769558898599')
-    model._train(encode_file_path, decode_file_path)
+    model.train(encode_file_path, decode_file_path)
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
