@@ -25,10 +25,10 @@ BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
 T_BATCH_SIZE = 32
-I_BATCH_SIZE = 2
+I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.0
 EPOCH = 10
-MAX_G_STEP = float('inf')
+MAX_G_STEP = 10
 
 VOCAB_COUNT_THRES = 2
 MAX_VOCAB = 6000
@@ -39,7 +39,7 @@ DECAY_STEP = 500
 
 SHOW_EVERY = 50
 SUMMARY_EVERY = 50
-SAVE_EVERY = 1000
+SAVE_EVERY = 8
 DEBUG = 1
 
 if DEBUG:
@@ -443,7 +443,7 @@ class Seq2seq:
 
 
                 ##### OPTIMIZATION #####
-                with tf.variable_scope('optimization', reuse=True):
+                with tf.variable_scope('optimization'):
 
                     # Get train_op
                     training_logits = tf.identity(training_decoder_output.rnn_output, name='logits')
@@ -471,19 +471,18 @@ class Seq2seq:
                     # cost = (tf.reduce_sum(crossent * mask) / T_BATCH_SIZE)
 
 
-                    # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
-                    # optimizer = tf.train.AdamOptimizer(lr)
-                    # gradients = optimizer.compute_gradients(cost)
-                    # capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
-                    # train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
+                    lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
+                    optimizer = tf.train.AdamOptimizer(lr)
+                    gradients = optimizer.compute_gradients(cost)
+                    capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
+                    train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
 
-
-                    # Clip by global norm
-                    trainable_params = tf.trainable_variables()
-                    gradients = tf.gradients(cost, trainable_params)
-                    capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
-                    optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
-                    train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), global_step=global_step, name='train_op')
+                    # # Clip by global norm
+                    # trainable_params = tf.trainable_variables()
+                    # gradients = tf.gradients(cost, trainable_params)
+                    # capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
+                    # optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    # train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), global_step=global_step, name='train_op')
 
                 if DEBUG:
                     tf.summary.scalar('seq_loss', cost)
