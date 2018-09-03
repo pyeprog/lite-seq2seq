@@ -27,7 +27,7 @@ if not os.path.isdir(MODEL_PATH):
 EMBEDDING_DIM = 512
 ENCODER_RNN_SIZE = 512 # even number only
 ENCODER_RNN_LAYERS_N = 2
-N_BUCKETS = 40
+USE_BUCKET = True
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
@@ -39,14 +39,14 @@ MAX_G_STEP = float('inf')
 
 VOCAB_REMAIN_RATE = 0.97
 
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-1
 DECAY_RATE = 0.98
 DECAY_STEP = 500
 
 REPORT_EVERY = 10
 SHOW_EVERY = 50
 SUMMARY_EVERY = 5 
-SAVE_EVERY = 100
+SAVE_EVERY = 10
 DEBUG = 1
 
 if DEBUG:
@@ -219,11 +219,11 @@ class Seq2seq:
 
         cur_count = 0
         for i, (word, count) in enumerate(word_count.most_common()):
-            print('\rFilter vocabs {}/{}'.format(i+1, n_words), end='', flush=True)
             cur_count += count
             if cur_count / n_words < VOCAB_REMAIN_RATE:
                 vocabs.append(word)
             else: break
+            print('\rFilter vocabs {}/{} = {}'.format(i+1, n_words, cur_count/n_words), end='', flush=True)
 
         int_to_vocab = {i:word for i, word in enumerate(vocabs)}
         vocab_to_int = {word:i for i, word in enumerate(vocabs)}
@@ -232,7 +232,7 @@ class Seq2seq:
         return int_to_vocab, vocab_to_int
 
 
-    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
+    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, use_bucket=True):
         with open(encode_file_path, 'r') as fp:
             encode_lines = fp.readlines()
         with open(decode_file_path, 'r') as fp:
@@ -271,40 +271,26 @@ class Seq2seq:
                 parsed_encode_lines.append(cur_encode_line)
                 parsed_decode_lines.append(cur_decode_line)
 
-        print('\tFinished')
 
-        if n_buckets > 1:
+        if use_bucket:
+            print('\tBucketizing...', end='')
             decode_lens = [(lens, i) for i, lens in enumerate(map(len, parsed_decode_lines))]
             decode_lens.sort(key=lambda x:x[0])
             parsed_encode_lines = [parsed_encode_lines[decode_lens[i][1]] for i in range(len(parsed_encode_lines))]
             parsed_decode_lines = [parsed_decode_lines[decode_lens[i][1]] for i in range(len(parsed_decode_lines))]
             
-            # decode_maxLen = max(decode_lens)
-            # decode_minLen = min(decode_lens)
-            # bucket_width = math.ceil((decode_maxLen - decode_minLen) / n_buckets)
-            # encode_bucket = [[] for _ in range(n_buckets+1)]
-            # decode_bucket = [[] for _ in range(n_buckets+1)]
-
-            # assert len(parsed_encode_lines) == len(parsed_decode_lines), 'parsed encode seqs and parsed decode seqs should have same number of lines'
-            # n_lines = len(parsed_encode_lines)
-
-            # for i, (encode_line, decode_line) in enumerate(zip(parsed_encode_lines, parsed_decode_lines)):
-            #     if i % 100 == 0 or i + 1 == n_lines:
-            #         print("\rBucketizing {}/{}".format(i+1, n_lines), end='', flush=True)
-
-            #     b_id = (len(decode_line) - decode_minLen) // bucket_width
-            #     encode_bucket[b_id].append(encode_line)
-            #     decode_bucket[b_id].append(decode_line)
-
-            # print(*map(len, encode_bucket))
-            # parsed_encode_lines = [*chain(*encode_bucket)]
-            # parsed_decode_lines = [*chain(*decode_bucket)]
-
         print('\tFinished')
 
         return parsed_encode_lines, parsed_decode_lines
 
-
+    def lr_schedule(self, lr, start_p, every_step, decay_rate):
+        global_step = 0
+        while True:
+            if global_step > start_p:
+                start_p += every_step
+                lr *= decay_rate
+            global_step += 1
+            yield lr
 
     @staticmethod
     def unwrap_self_train(*arg, **kwarg):
@@ -315,14 +301,14 @@ class Seq2seq:
         return Seq2seq._train(*arg, **kwarg)
 
     
-    def train(self, encode_file_path, decode_file_path):
+    def train(self, encode_file_path, decode_file_path, load_model_path=None):
         '''
         A process wrapper for train method
         If you use gpu to train the model, memory will not be released, even after closing session
         However, if the process is killed, memory will be released.
         '''
         with Pool(1) as process:
-            params = (encode_file_path, decode_file_path)
+            params = (encode_file_path, decode_file_path, load_model_path)
             process.apply(self.unwrap_self_train, (self, *params))
 
 
@@ -342,7 +328,7 @@ class Seq2seq:
             self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, use_bucket=USE_BUCKET)
 
             # create placeholder
             ## why the shape is [None, None]? explain
@@ -546,8 +532,10 @@ class Seq2seq:
                     # cost = (tf.reduce_sum(crossent * mask) / T_BATCH_SIZE)
 
 
-                    lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
-                    optimizer = tf.train.AdamOptimizer(lr)
+                    # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
+                    # optimizer = tf.train.AdamOptimizer(lr)
+                    lr = tf.placeholder(tf.float32)
+                    optimizer = tf.train.GradientDescentOptimizer(lr)
                     gradients = optimizer.compute_gradients(cost)
                     capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
                     train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
@@ -561,7 +549,7 @@ class Seq2seq:
 
                 if DEBUG:
                     tf.summary.scalar('seq_loss', cost)
-                    tf.summary.scalar('learning_rate', optimizer._lr)
+                    # tf.summary.scalar('learning_rate', optimizer._lr)
 
                     trainable_params = tf.trainable_variables()
                     gradients = tf.gradients(cost, trainable_params)
@@ -593,7 +581,7 @@ class Seq2seq:
             self.load(load_model_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, use_bucket=USE_BUCKET)
 
             with self.graph.as_default():
                 encoder_input = self.graph.get_tensor_by_name('inputs:0')
@@ -626,6 +614,9 @@ class Seq2seq:
             # Create a saver
             saver = tf.train.Saver(max_to_keep=1)
 
+            # Learning rate generator
+            lr_gen = self.lr_schedule(LEARNING_RATE, 8e3, 1e3, 0.5)
+
             if DEBUG:
                 summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
                 summary_writer.add_graph(self.sess.graph)
@@ -642,6 +633,7 @@ class Seq2seq:
                 for cur_batch_pack in batch_generator:
                     inputs, inputs_lens, targets, targets_lens = cur_batch_pack
 
+                    lr_val = next(lr_gen)
                     _, train_loss, g_step = self.sess.run(
                             [train_op, cost, global_step],
                             feed_dict={
@@ -649,7 +641,8 @@ class Seq2seq:
                                 encoder_input_seq_lengths:inputs_lens,
                                 decoder_target:targets,
                                 decoder_target_seq_lengths:targets_lens,
-                                dropout_keep_prob: DROPOUT_KEEP_PROB
+                                dropout_keep_prob: DROPOUT_KEEP_PROB,
+                                lr: lr_val
                                 }
                             )
                     print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
@@ -667,7 +660,7 @@ class Seq2seq:
                             })
 
                         bleu_score = self._bleu(prediction_lists, valid_targets)
-                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
+                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score, lr_val))
 
                     if g_step % SHOW_EVERY == 0:
                         # Vivid example
@@ -832,8 +825,8 @@ if __name__ == '__main__':
     encode_file_path = './data/en_vi/train.en'
     decode_file_path = './data/en_vi/train.vi'
 
-    # model.load('./models/94193666769558898599')
-    model.train(encode_file_path, decode_file_path)
+    # model.load('./models/07818100826456953142')
+    model.train(encode_file_path, decode_file_path)#, './models/07818100826456953142')
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
