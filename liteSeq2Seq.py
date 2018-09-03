@@ -25,8 +25,8 @@ if not os.path.isdir(MODEL_PATH):
 
 # Hyper params
 EMBEDDING_DIM = 512
-ENCODER_RNN_SIZE = 512 # even number only
-ENCODER_RNN_LAYERS_N = 2
+ENCODER_RNN_SIZE = 1024 # even number only
+ENCODER_RNN_LAYERS_N = 3
 USE_BUCKET = True
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
@@ -40,13 +40,14 @@ MAX_G_STEP = float('inf')
 VOCAB_REMAIN_RATE = 0.97
 
 LEARNING_RATE = 1e-1
-DECAY_RATE = 0.98
-DECAY_STEP = 500
+DECAY_RATE = 0.5
+DECAY_EVERY = 1e3
+DECAY_START_AT = 8e3
 
-REPORT_EVERY = 10
-SHOW_EVERY = 50
-SUMMARY_EVERY = 5 
-SAVE_EVERY = 10
+REPORT_EVERY = 50
+SHOW_EVERY = 200
+SUMMARY_EVERY = 50 
+SAVE_EVERY = 500
 DEBUG = 1
 
 if DEBUG:
@@ -534,7 +535,7 @@ class Seq2seq:
 
                     # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
                     # optimizer = tf.train.AdamOptimizer(lr)
-                    lr = tf.placeholder(tf.float32)
+                    lr = tf.placeholder(tf.float32, name='learning_rate')
                     optimizer = tf.train.GradientDescentOptimizer(lr)
                     gradients = optimizer.compute_gradients(cost)
                     capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
@@ -590,6 +591,7 @@ class Seq2seq:
                 decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
                 dropout_keep_prob = self.graph.get_tensor_by_name('dropout:0')
                 decoder_output = self.graph.get_tensor_by_name('optimization/training_output:0')
+                lr = self.graph.get_tensor_by_name('optimization/learning_rate:0')
                 train_op = tf.get_collection("optimization")[0]
                 cost = tf.get_collection("optimization")[1]
                 global_step = tf.get_collection("optimization")[2]
@@ -615,7 +617,7 @@ class Seq2seq:
             saver = tf.train.Saver(max_to_keep=1)
 
             # Learning rate generator
-            lr_gen = self.lr_schedule(LEARNING_RATE, 8e3, 1e3, 0.5)
+            lr_gen = self.lr_schedule(LEARNING_RATE, DECAY_START_AT, DECAY_EVERY, DECAY_RATE)
 
             if DEBUG:
                 summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
