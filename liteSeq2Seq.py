@@ -1,16 +1,22 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 import numpy as np
 import _pickle as pkl
 import os
 import re
+import math
 from collections import Counter
 from random import random
+from random import choice
 from multiprocessing import Pool
+from itertools import chain
 
-# GatherTree ops hasn't happened. Adding import to force library to load
+# GatherTree ops don't load automatically. Adding import to force library to load
 # Fixed the KeyError: GatherTree
 from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
-
 
 # Specify save path of models
 MODEL_PATH = './models'
@@ -19,27 +25,28 @@ if not os.path.isdir(MODEL_PATH):
 
 # Hyper params
 EMBEDDING_DIM = 512
-ENCODER_RNN_SIZE = 1024 # even number only
-ENCODER_RNN_LAYERS_N = 3
+ENCODER_RNN_SIZE = 512 # even number only
+ENCODER_RNN_LAYERS_N = 2
+N_BUCKETS = 40
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
-T_BATCH_SIZE = 32
+T_BATCH_SIZE = 128
 I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.0
 EPOCH = 10
-MAX_G_STEP = 10
+MAX_G_STEP = float('inf')
 
-VOCAB_COUNT_THRES = 2
-MAX_VOCAB = 6000
+VOCAB_REMAIN_RATE = 0.97
 
-LEARNING_RATE = 1e-3
-DECAY_RATE = 0.99
+LEARNING_RATE = 5e-4
+DECAY_RATE = 0.98
 DECAY_STEP = 500
 
+REPORT_EVERY = 10
 SHOW_EVERY = 50
-SUMMARY_EVERY = 50
-SAVE_EVERY = 8
+SUMMARY_EVERY = 5 
+SAVE_EVERY = 100
 DEBUG = 1
 
 if DEBUG:
@@ -196,39 +203,107 @@ class Seq2seq:
             lines = fp.readlines()
 
         word_count = Counter()
-        vocabs = set(['<PAD>', '<UNK>', '<GO>', '<EOS>'])
+        vocabs = ['<PAD>', '<UNK>', '<GO>', '<EOS>']
         n_lines = len(lines)
+        n_words = 0
+
         for i, line in enumerate(lines):
             if i % 100 == 0 or i + 1 == n_lines:
                 print('\rParsing dictionary {}/{}'.format(i+1, n_lines), end='', flush=True)
-            for word in line.split():
-                word = word.lower()
+            
+            for word in line.lower().split():
                 word_count[word] += 1
-        
-        vocabs = ['<PAD>', '<UNK>', '<GO>', '<EOS>'] + [word_tuple[0] for word_tuple in word_count.most_common()[:MAX_VOCAB] if word_tuple[1] >= VOCAB_COUNT_THRES]
+                n_words += 1
+
+        print('\tFinished')
+
+        cur_count = 0
+        for i, (word, count) in enumerate(word_count.most_common()):
+            print('\rFilter vocabs {}/{}'.format(i+1, n_words), end='', flush=True)
+            cur_count += count
+            if cur_count / n_words < VOCAB_REMAIN_RATE:
+                vocabs.append(word)
+            else: break
+
         int_to_vocab = {i:word for i, word in enumerate(vocabs)}
         vocab_to_int = {word:i for i, word in enumerate(vocabs)}
         print('\tFinished')
+        print('Total len of vocabs: {}'.format(len(vocabs)))
         return int_to_vocab, vocab_to_int
 
-    
-    def _parse_seq(self, file_path, vocab_to_int):
-        with open(file_path, 'r') as fp:
-            lines = fp.readlines()
 
-        encoded_lines = []
-        unk_id = vocab_to_int['<UNK>']
-        n_lines = len(lines)
-        for i, line in enumerate(lines):
+    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
+        with open(encode_file_path, 'r') as fp:
+            encode_lines = fp.readlines()
+        with open(decode_file_path, 'r') as fp:
+            decode_lines = fp.readlines()
+
+        assert len(encode_lines) == len(decode_lines), 'encode file and decode file should have same number of lines'
+
+        encode_unk_id = encoder_vocab_to_int['<UNK>']
+        decode_unk_id = decoder_vocab_to_int['<UNK>']
+
+        n_lines = len(encode_lines)
+
+        parsed_encode_lines = []
+        parsed_decode_lines = []
+
+        for i, (encode_line, decode_line) in enumerate(zip(encode_lines, decode_lines)):
             if i % 100 == 0 or i + 1 == n_lines:
                 print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
 
-            cur = [vocab_to_int.get(word.lower(), unk_id) for word in line.split()]
-            if len(cur) > 0:
-                encoded_lines.append(cur)
+            cur_encode_line = []
+            cur_encode_n_unk = 0
+            for word in encode_line.lower().split():
+                if word not in encoder_vocab_to_int:
+                    cur_encode_n_unk += 1
+                cur_encode_line.append(encoder_vocab_to_int.get(word, encode_unk_id))
+
+            cur_decode_line = []
+            cur_decode_n_unk = 0
+            for word in decode_line.lower().split():
+                if word not in decoder_vocab_to_int:
+                    cur_decode_n_unk += 1
+                cur_decode_line.append(decoder_vocab_to_int.get(word, decode_unk_id))
+
+            if len(cur_encode_line) > 0 and cur_encode_n_unk / len(cur_encode_line) < 0.2 and \
+                    len(cur_decode_line) > 0 and cur_decode_n_unk / len(cur_decode_line) < 0.2:
+                parsed_encode_lines.append(cur_encode_line)
+                parsed_decode_lines.append(cur_decode_line)
 
         print('\tFinished')
-        return encoded_lines
+
+        if n_buckets > 1:
+            decode_lens = [(lens, i) for i, lens in enumerate(map(len, parsed_decode_lines))]
+            decode_lens.sort(key=lambda x:x[0])
+            parsed_encode_lines = [parsed_encode_lines[decode_lens[i][1]] for i in range(len(parsed_encode_lines))]
+            parsed_decode_lines = [parsed_decode_lines[decode_lens[i][1]] for i in range(len(parsed_decode_lines))]
+            
+            # decode_maxLen = max(decode_lens)
+            # decode_minLen = min(decode_lens)
+            # bucket_width = math.ceil((decode_maxLen - decode_minLen) / n_buckets)
+            # encode_bucket = [[] for _ in range(n_buckets+1)]
+            # decode_bucket = [[] for _ in range(n_buckets+1)]
+
+            # assert len(parsed_encode_lines) == len(parsed_decode_lines), 'parsed encode seqs and parsed decode seqs should have same number of lines'
+            # n_lines = len(parsed_encode_lines)
+
+            # for i, (encode_line, decode_line) in enumerate(zip(parsed_encode_lines, parsed_decode_lines)):
+            #     if i % 100 == 0 or i + 1 == n_lines:
+            #         print("\rBucketizing {}/{}".format(i+1, n_lines), end='', flush=True)
+
+            #     b_id = (len(decode_line) - decode_minLen) // bucket_width
+            #     encode_bucket[b_id].append(encode_line)
+            #     decode_bucket[b_id].append(decode_line)
+
+            # print(*map(len, encode_bucket))
+            # parsed_encode_lines = [*chain(*encode_bucket)]
+            # parsed_decode_lines = [*chain(*decode_bucket)]
+
+        print('\tFinished')
+
+        return parsed_encode_lines, parsed_decode_lines
+
 
 
     @staticmethod
@@ -251,14 +326,14 @@ class Seq2seq:
             process.apply(self.unwrap_self_train, (self, *params))
 
 
-    def _train(self, encode_file_path, decode_file_path):
+    def _train(self, encode_file_path, decode_file_path, load_model_path=None):
         '''
         Train the model for the first time or retrain the model
         @encode_file_path: str, the path of the encoder training file
         @decode_file_path: str, the path of the decoder training file
         @return: None
         '''
-        if not hasattr(self, 'sess'):
+        if not load_model_path:
             # Train model from start
             print('Train new model')
             
@@ -267,8 +342,7 @@ class Seq2seq:
             self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_path)
 
             # Create seqs
-            self.encode_seqs = self._parse_seq(encode_file_path, self.encoder_vocab_to_int)
-            self.decode_seqs = self._parse_seq(decode_file_path, self.decoder_vocab_to_int)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
 
             # create placeholder
             ## why the shape is [None, None]? explain
@@ -286,7 +360,8 @@ class Seq2seq:
                 encoder_input_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='source_lens')
                 decoder_target_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='target_lens')
 
-                # Build whole model and Get training_logits
+
+
 
                 ###### ENCODER ######
                 with tf.variable_scope('encoder'):
@@ -515,10 +590,10 @@ class Seq2seq:
         else:
             # Pre-trained model has loaded
             print('Load pre-trained model')
+            self.load(load_model_path)
 
             # Create seqs
-            self.encode_seqs = self._parse_seq(encode_file_path, self.encoder_vocab_to_int)
-            self.decode_seqs = self._parse_seq(decode_file_path, self.decoder_vocab_to_int)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
 
             with self.graph.as_default():
                 encoder_input = self.graph.get_tensor_by_name('inputs:0')
@@ -579,7 +654,7 @@ class Seq2seq:
                             )
                     print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
 
-                    if g_step % SHOW_EVERY == 0:
+                    if g_step % REPORT_EVERY == 0:
                         valid_batch_pack = next(valid_batch_generator)
                         valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
 
@@ -593,6 +668,18 @@ class Seq2seq:
 
                         bleu_score = self._bleu(prediction_lists, valid_targets)
                         print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score))
+
+                    if g_step % SHOW_EVERY == 0:
+                        # Vivid example
+                        print('*********')
+                        idx = choice(np.arange(len(prediction_lists)))
+                        prediction_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in prediction_lists[idx]])
+                        input_str = ' '.join([self.encoder_int_to_vocab.get(n, '<UNK>') for n in valid_inputs[idx]])
+                        target_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in valid_targets[idx]])
+                        print('INPUT: ', input_str)
+                        print('PRED: ', prediction_str)
+                        print('EXPECT: ', target_str)
+                        print('*********')
                     
                     if g_step % SAVE_EVERY == 0:
                         saver.save(self.sess, self.model_ckpt_path, write_meta_graph=True)
@@ -742,8 +829,8 @@ class TextProcessor:
 
 if __name__ == '__main__':
     model = Seq2seq()
-    encode_file_path = './data/en_fr/small_vocab_en'
-    decode_file_path = './data/en_fr/small_vocab_fr'
+    encode_file_path = './data/en_vi/train.en'
+    decode_file_path = './data/en_vi/train.vi'
 
     # model.load('./models/94193666769558898599')
     model.train(encode_file_path, decode_file_path)
