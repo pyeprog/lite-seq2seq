@@ -51,53 +51,50 @@ Please keep in mind that it's pretty easy to use up your free memory if you have
 ## Evaluation
 ### The translation result of English to Vietnamese
 ```
-INPUT:  which i &apos;m glad you liked , but they did not like that at all .
-PRED:  tôi thích lòng bạn bạn thích , , nhưng họ không không toàn không thích nhưng <PAD>
-EXPECT:  rất vui vì các bạn thích nó , nhưng họ thì hoàn toàn không . <EOS> <PAD>
+ *********
+846/3801 E:5/10 B:16050 - train loss: 1.9108352661132812	valid loss: 1.8648494482040405	valid bleu: 0.3059511154884005	lr: 1.953125e-06
+896/3801 E:5/10 B:16100 - train loss: 1.8717025518417358	valid loss: 1.826714038848877	valid bleu: 0.3140566889522327	lr: 1.953125e-06
+946/3801 E:5/10 B:16150 - train loss: 1.8364272117614746	valid loss: 1.7648216485977173	valid bleu: 0.29352795471834864	lr: 1.953125e-06
+996/3801 E:5/10 B:16200 - train loss: 1.5862809419631958	valid loss: 1.814572811126709	valid bleu: 0.33907792613568394	lr: 1.953125e-06
 *********
-1048/3801 E:3/10 B:8650 - train loss: 2.0453741550445557	valid loss: 2.2149105072021484	valid bleu: 0.27421582436549286	lr: 0.0005
-1098/3801 E:3/10 B:8700 - train loss: 1.8414764404296875	valid loss: 1.7279936075210571	valid bleu: 0.38183637121628766	lr: 0.0005
-1148/3801 E:3/10 B:8750 - train loss: 1.6540954113006592	valid loss: 1.8261561393737793	valid bleu: 0.32094779986631233	lr: 0.0005
-1198/3801 E:3/10 B:8800 - train loss: 2.039867639541626	valid loss: 2.1421258449554443	valid bleu: 0.26091351867658935	lr: 0.0005
+INPUT:  <UNK> billion years pass and this song is still ringing all around us . <PAD> <PAD> <PAD> <PAD> <PAD> <PAD>
+PRED:  <UNK> mươi năm qua và bài hát này vẫn đang <UNK> <UNK> xung chúng ta . <PAD>
+EXPECT:  14 tỉ năm qua và bài hát này vẫn luôn vang lên quanh chúng ta <EOS> <PAD>
 *********
-INPUT:  and then you ask , why economists ? <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD>
-PRED:  và đến bạn hỏi hỏi tại tại sao các các nhà nhà kinh tế ? ? <EOS>
-EXPECT:  có thể bạn sẽ hỏi : tại sao lại là các nhà kinh tế học ? <EOS>
+1046/3801 E:5/10 B:16250 - train loss: 1.3182300329208374	valid loss: 1.6934211254119873	valid bleu: 0.37053918847078254	lr: 1.953125e-06
+1096/3801 E:5/10 B:16300 - train loss: 1.6285063028335571	valid loss: 1.8579593896865845	valid bleu: 0.35022817363585124	lr: 1.953125e-06
+1146/3801 E:5/10 B:16350 - train loss: 1.2561579942703247	valid loss: 2.055617094039917	valid bleu: 0.2913682102088838	lr: 1.953125e-06
+1196/3801 E:5/10 B:16400 - train loss: 1.4308795928955078	valid loss: 1.9623420238494873	valid bleu: 0.3123804461163495	lr: 1.953125e-06
 *********
-1248/3801 E:3/10 B:8850 - train loss: 1.8587589263916016	valid loss: 2.0005407333374023	valid bleu: 0.3392455093290396	lr: 0.0005
-1298/3801 E:3/10 B:8900 - train loss: 1.891492486000061	valid loss: 1.9412884712219238	valid bleu: 0.3106838948851244	lr: 0.0005
-1348/3801 E:3/10 B:8950 - train loss: 2.0899720191955566	valid loss: 2.053297996520996	valid bleu: 0.28445687192641694	lr: 0.0005
-1398/3801 E:3/10 B:9000 - train loss: 1.7055124044418335	valid loss: 2.312941551208496	valid bleu: 0.22785045770699983	lr: 0.0005
+INPUT:  the thing to understand about shame is it &apos;s not guilt . <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD>
+PRED:  điều biết sự xấu hổ là nghĩa là nó không phải là lỗi lỗi . <EOS> <PAD>
+EXPECT:  hiểu về sự xấu hổ có nghĩa là nó không phải là tội lỗi . <EOS> <PAD>
 *********
-INPUT:  so that , if one thing changes , everything else changes . <PAD> <PAD> <PAD> <PAD> <PAD> <PAD>
-PRED:  vậy điều , thay thay điều thay đổi , mọi thứ khác thay thay đổi khác <PAD>
-EXPECT:  để mà chỉ cần một thứ thay đổi là mọi thứ khác cũng thay đổi <EOS> <PAD>
+1246/3801 E:5/10 B:16450 - train loss: 1.7905057668685913	valid loss: 1.9081865549087524	valid bleu: 0.3494880628701128	lr: 1.953125e-06
+1296/3801 E:5/10 B:16500 - train loss: 1.589463233947754	valid loss: 1.6822949647903442	valid bleu: 0.3286996861980662	lr: 1.953125e-06
+1346/3801 E:5/10 B:16550 - train loss: 1.6918792724609375	valid loss: 1.9649474620819092	valid bleu: 0.344897747790911	lr: 1.953125e-06
+1396/3801 E:5/10 B:16600 - train loss: 1.4967548847198486	valid loss: 1.6828497648239136	valid bleu: 0.3509032703562231	lr: 1.953125e-06
 *********
-1448/3801 E:3/10 B:9050 - train loss: 1.1380536556243896	valid loss: 2.1460866928100586	valid bleu: 0.31229518563789693	lr: 0.00025
-1498/3801 E:3/10 B:9100 - train loss: 0.920090913772583	valid loss: 1.8488413095474243	valid bleu: 0.29356650833508835	lr: 0.00025
-1548/3801 E:3/10 B:9150 - train loss: 1.1864454746246338	valid loss: 2.1042449474334717	valid bleu: 0.23671743609433776	lr: 0.00025
-1598/3801 E:3/10 B:9200 - train loss: 0.964065432548523	valid loss: 2.234126567840576	valid bleu: 0.22037351345615266	lr: 0.00025
+INPUT:  you want a cigarette in prison ? three to five dollars . <PAD> <PAD> <PAD> <PAD>
+PRED:  bạn muốn thuốc loại thuốc ở tù tù ? ? <EOS> đến năm đô . . <EOS>
+EXPECT:  bạn muốn một <UNK> thuốc ở trong tù ư ? 3 đến 5 đô la . <EOS>
 *********
-INPUT:  but , you know , we have become obsessed with this linear narrative . <PAD> <PAD>
-PRED:  nhưng bạn ta đã bị ám kể về câu này nghĩ này tính này <EOS> <EOS> <PAD>
-EXPECT:  nhưng chúng ta đã quá lệ thuộc vào kiểu suy nghĩ tuyến tính này . <EOS> <PAD>
+1446/3801 E:5/10 B:16650 - train loss: 0.8905309438705444	valid loss: 1.7163500785827637	valid bleu: 0.3482968483409197	lr: 1.953125e-06
+1496/3801 E:5/10 B:16700 - train loss: 0.6797949075698853	valid loss: 1.7330551147460938	valid bleu: 0.3151641739022078	lr: 1.953125e-06
+1546/3801 E:5/10 B:16750 - train loss: 0.8636561036109924	valid loss: 1.8132535219192505	valid bleu: 0.3593988877271352	lr: 1.953125e-06
+1596/3801 E:5/10 B:16800 - train loss: 1.039635419845581	valid loss: 1.890971064567566	valid bleu: 0.348145940855399	lr: 1.953125e-06
 *********
-1648/3801 E:3/10 B:9250 - train loss: 1.7979393005371094	valid loss: 2.690335988998413	valid bleu: 0.20174338847822432	lr: 0.00025
-1698/3801 E:3/10 B:9300 - train loss: 1.6464687585830688	valid loss: 2.469257116317749	valid bleu: 0.23382361948814526	lr: 0.00025
-1748/3801 E:3/10 B:9350 - train loss: 1.6552934646606445	valid loss: 2.720841646194458	valid bleu: 0.14626498494873927	lr: 0.00025
-1798/3801 E:3/10 B:9400 - train loss: 1.2420995235443115	valid loss: 2.548173666000366	valid bleu: 0.2009625139063891	lr: 0.00025
+INPUT:  we take them out of the group , put them in a test chamber . <PAD> <PAD> <PAD> <PAD>
+PRED:  chúng tôi đưa chúng ra khỏi nhóm , đặt chúng trong phòng kiểm nghiệm . <EOS> <PAD>
+EXPECT:  chúng tôi tách chúng ra khỏi nhóm và mang chúng đến phòng thử nghiệm . <EOS> <PAD>
 *********
-INPUT:  it &apos;s been a severe disease for thousands of years . <PAD> <PAD> <PAD> <PAD> <PAD> <PAD> <PAD>
-PRED:  đó hàng ngàn năm qua bệnh là bệnh là bệnh căn bệnh nghiêm trọng <EOS> <EOS> <PAD>
-EXPECT:  trong hàng ngàn năm , nó được coi là 1 căn bệnh trầm trọng . <EOS> <PAD>
+1646/3801 E:5/10 B:16850 - train loss: 1.5933128595352173	valid loss: 1.9628973007202148	valid bleu: 0.3285307809158357	lr: 1.953125e-06
+1696/3801 E:5/10 B:16900 - train loss: 1.1691449880599976	valid loss: 1.9147114753723145	valid bleu: 0.33175300873705554	lr: 1.953125e-06
+1746/3801 E:5/10 B:16950 - train loss: 1.1576321125030518	valid loss: 1.822666883468628	valid bleu: 0.3125149585230503	lr: 1.953125e-06
+1796/3801 E:5/10 B:17000 - train loss: 1.1822071075439453	valid loss: 2.1643805503845215	valid bleu: 0.30734826525996944	lr: 1.953125e-06
 *********
-1848/3801 E:3/10 B:9450 - train loss: 2.1727941036224365	valid loss: 2.2172937393188477	valid bleu: 0.275836290085675	lr: 0.00025
-1898/3801 E:3/10 B:9500 - train loss: 2.0006470680236816	valid loss: 2.0729641914367676	valid bleu: 0.27740728153593047	lr: 0.00025
-1948/3801 E:3/10 B:9550 - train loss: 1.7884482145309448	valid loss: 2.485726833343506	valid bleu: 0.19560731856258387	lr: 0.00025
-1998/3801 E:3/10 B:9600 - train loss: 1.7653093338012695	valid loss: 2.1534786224365234	valid bleu: 0.2800324652154898	lr: 0.00025
-*********
-INPUT:  you need the time to get to know the people that you &apos;re serving . <PAD> <PAD> <PAD> <PAD>
-PRED:  bạn cần thời gian để tìm được những người mà bạn đang phục vụ cho <EOS> <PAD>
-EXPECT:  bạn cần thời gian để hiểu về những người mà bạn đang phục vụ . <EOS> <PAD>
+INPUT:  it &apos;s <UNK> by being citizens , by being citizens , by being <UNK> . <PAD> <PAD> <PAD>
+PRED:  nó là cách công án của công công dân , bởi là những dân , . <EOS>
+EXPECT:  mà bằng chính vai trò là những công dân , đó là công dân ted . <EOS>
 *********
 ```
