@@ -10,7 +10,6 @@ import re
 import math
 from collections import Counter
 from random import random
-from random import choice
 from multiprocessing import Pool
 from itertools import chain
 
@@ -27,11 +26,11 @@ if not os.path.isdir(MODEL_PATH):
 EMBEDDING_DIM = 512
 ENCODER_RNN_SIZE = 1024 # even number only
 ENCODER_RNN_LAYERS_N = 3
-USE_BUCKET = True
+N_BUCKETS = 20
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
-T_BATCH_SIZE = 128
+T_BATCH_SIZE = 32
 I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.0
 EPOCH = 10
@@ -39,7 +38,7 @@ MAX_G_STEP = float('inf')
 
 VOCAB_REMAIN_RATE = 0.97
 
-LEARNING_RATE = 1e-1
+LEARNING_RATE = 1e-3
 DECAY_RATE = 0.5
 DECAY_EVERY = 1e3
 DECAY_START_AT = 8e3
@@ -233,7 +232,7 @@ class Seq2seq:
         return int_to_vocab, vocab_to_int
 
 
-    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, use_bucket=True):
+    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
         with open(encode_file_path, 'r') as fp:
             encode_lines = fp.readlines()
         with open(decode_file_path, 'r') as fp:
@@ -273,13 +272,24 @@ class Seq2seq:
                 parsed_decode_lines.append(cur_decode_line)
 
 
-        if use_bucket:
+        if n_buckets > 1:
             print('\tBucketizing...', end='')
             decode_lens = [(lens, i) for i, lens in enumerate(map(len, parsed_decode_lines))]
             decode_lens.sort(key=lambda x:x[0])
-            parsed_encode_lines = [parsed_encode_lines[decode_lens[i][1]] for i in range(len(parsed_encode_lines))]
-            parsed_decode_lines = [parsed_decode_lines[decode_lens[i][1]] for i in range(len(parsed_decode_lines))]
-            
+            bucket_width = len(parsed_decode_lines) // n_buckets
+
+            decode_idxs = [item[1] for item in decode_lens]
+
+            bucket = []
+            for i in range(n_buckets - 1):
+                bucket.append(list(np.random.permutation(decode_idxs[i*bucket_width : (i+1)*bucket_width])))
+            bucket.append(list(np.random.permutation(decode_idxs[(i+1)*bucket_width:])))
+            bucket = np.random.permutation(bucket)
+            decode_idxs = [*chain(*bucket)]
+
+            parsed_encode_lines = [parsed_encode_lines[decode_idxs[i]] for i in range(len(parsed_encode_lines))]
+            parsed_decode_lines = [parsed_decode_lines[decode_idxs[i]] for i in range(len(parsed_decode_lines))]
+
         print('\tFinished')
 
         return parsed_encode_lines, parsed_decode_lines
@@ -329,7 +339,7 @@ class Seq2seq:
             self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, use_bucket=USE_BUCKET)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
 
             # create placeholder
             ## why the shape is [None, None]? explain
@@ -534,9 +544,9 @@ class Seq2seq:
 
 
                     # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
-                    # optimizer = tf.train.AdamOptimizer(lr)
                     lr = tf.placeholder(tf.float32, name='learning_rate')
-                    optimizer = tf.train.GradientDescentOptimizer(lr)
+                    # optimizer = tf.train.GradientDescentOptimizer(lr)
+                    optimizer = tf.train.AdamOptimizer(lr)
                     gradients = optimizer.compute_gradients(cost)
                     capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
                     train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
@@ -582,7 +592,7 @@ class Seq2seq:
             self.load(load_model_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, use_bucket=USE_BUCKET)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
 
             with self.graph.as_default():
                 encoder_input = self.graph.get_tensor_by_name('inputs:0')
@@ -667,7 +677,7 @@ class Seq2seq:
                     if g_step % SHOW_EVERY == 0:
                         # Vivid example
                         print('*********')
-                        idx = choice(np.arange(len(prediction_lists)))
+                        idx = np.random.choice(np.arange(len(prediction_lists)))
                         prediction_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in prediction_lists[idx]])
                         input_str = ' '.join([self.encoder_int_to_vocab.get(n, '<UNK>') for n in valid_inputs[idx]])
                         target_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in valid_targets[idx]])
