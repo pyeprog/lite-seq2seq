@@ -30,13 +30,13 @@ N_BUCKETS = 20
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
-T_BATCH_SIZE = 32
+T_BATCH_SIZE = 1
 I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.0
 EPOCH = 10
 MAX_G_STEP = float('inf')
 
-VOCAB_REMAIN_RATE = 0.97
+VOCAB_REMAIN_RATE = 0.93
 
 LEARNING_RATE = 1e-3
 DECAY_RATE = 0.5
@@ -86,12 +86,13 @@ class Seq2seq:
         return ngram_counts
 
 
-    def _bleu(self, gen_lists, refer_lists, max_order=4, smooth=False):
+    def _bleu(self, gen_lists, refer_lists, max_order=4, smooth=True):
         matches_by_order = [0] * max_order
         possible_matches_by_order = [0] * max_order
         refer_length = 0
         gen_length = 0
 
+        # In my case, generated string only has 1 reference string
         for (refer_list, gen_list) in zip(refer_lists, gen_lists):
             refer_length += len(refer_list)
             gen_length += len(gen_list)
@@ -121,7 +122,9 @@ class Seq2seq:
                     precisions[i] = 0.0
 
         if min(precisions) > 0:
-            p_log_sum = sum((1. / max_order) * np.log(p) for p in precisions)
+            # Tensorflow nmt group use this
+            ## p_log_sum = sum((1. / max_order) * np.log(p) for p in precisions)
+            p_log_sum = sum((1. / max_order) * p for p in precisions)
             geo_mean = np.exp(p_log_sum)
         else:
             geo_mean = 0.0
@@ -817,9 +820,12 @@ class TextProcessor:
             return new_lines
 
         else:
-            with open(self.file_path+'.proc', 'w') as fp:
+            filedir = os.path.dirname(self.file_path)
+            filename = os.path.basename(self.file_path)
+            os.rename(self.file_path, os.path.join(filedir, filename+'.origin'))
+            with open(self.file_path, 'w') as fp:
                 fp.write(new_content)
-            return self.file_path+'.proc'
+            return self.file_path
 
     def process_str(self, string, proc_fn_list=[]):
         if len(proc_fn_list) == 0:
@@ -834,8 +840,12 @@ class TextProcessor:
 
 if __name__ == '__main__':
     model = Seq2seq()
-    encode_file_path = './data/en_vi/train.en'
-    decode_file_path = './data/en_vi/train.vi'
+    encode_file_path = './data/twitter_chat/question'
+    decode_file_path = './data/twitter_chat/answer'
+
+    tp = TextProcessor()
+    tp.read(encode_file_path).process(inplace=True)
+    tp.read(decode_file_path).process(inplace=True)
 
     # model.load('./models/07818100826456953142')
     model.train(encode_file_path, decode_file_path)#, './models/07818100826456953142')
