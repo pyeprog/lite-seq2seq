@@ -26,7 +26,7 @@ if not os.path.isdir(MODEL_PATH):
 EMBEDDING_DIM = 512
 ENCODER_RNN_SIZE = 1024 # even number only
 ENCODER_RNN_LAYERS_N = 3
-N_BUCKETS = 20
+N_BUCKETS = 50
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
@@ -277,21 +277,26 @@ class Seq2seq:
 
         if n_buckets > 1:
             print('\tBucketizing...', end='')
-            decode_lens = [(lens, i) for i, lens in enumerate(map(len, parsed_decode_lines))]
-            decode_lens.sort(key=lambda x:x[0])
-            bucket_width = len(parsed_decode_lines) // n_buckets
+            encode_line_lens = map(len, parsed_encode_lines)
+            decode_line_lens = map(len, parsed_decode_lines)
 
-            decode_idxs = [item[1] for item in decode_lens]
+            max_encode_len = max(encode_line_lens)
+            max_decode_len = max(decode_line_lens)
 
-            bucket = []
-            for i in range(n_buckets - 1):
-                bucket.append(list(np.random.permutation(decode_idxs[i*bucket_width : (i+1)*bucket_width])))
-            bucket.append(list(np.random.permutation(decode_idxs[(i+1)*bucket_width:])))
-            bucket = np.random.permutation(bucket)
-            decode_idxs = [*chain(*bucket)]
+            lens_tuple = [(max(enc_len, dec_len), i) for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens))] 
+            bucket_width = (max_encode_len + n_buckets - 1) // n_buckets 
+            buckets = {}
+            for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens)):
+                b_id = max(enc_len, dec_len) // bucket_width
+                buckets[b_id] = buckets.get(b_id, set())
+                buckets[b_id].add(i)
 
-            parsed_encode_lines = [parsed_encode_lines[decode_idxs[i]] for i in range(len(parsed_encode_lines))]
-            parsed_decode_lines = [parsed_decode_lines[decode_idxs[i]] for i in range(len(parsed_decode_lines))]
+            decode_idxs = []
+            for b_id in sorted(buckets.keys()):
+                decode_idxs.extend(list(buckets[b_id]))
+
+            parsed_encode_lines = [parsed_encode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
+            parsed_decode_lines = [parsed_decode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
 
         print('\tFinished')
 
@@ -801,7 +806,7 @@ class TextProcessor:
 
         return self
 
-    def process(self, proc_fn_list=[], inplace=False):
+    def process(self, proc_fn_list=[], inplace=False, overwrite=False):
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
 

@@ -22,8 +22,6 @@ for i, conv in enumerate(raw_conversation):
     print('{}/{} conversation processing ...'.format(i+1, n_conversation))
     conv_list.append(eval(conv.split(' +++$+++ ')[-1])) 
 
-# print(conv_list[:10])
-# print(line_dict['L204'])
 
 question_list = []
 answer_list = []
