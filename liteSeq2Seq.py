@@ -30,13 +30,13 @@ N_BUCKETS = 20
 BEAM_WIDTH = 3
 DROPOUT_KEEP_PROB = 0.8
 VALID_PORTION = 0.05
-T_BATCH_SIZE = 1
+T_BATCH_SIZE = 32
 I_BATCH_SIZE = 1
 MAX_GRADIENT_NORM = 5.0
 EPOCH = 10
 MAX_G_STEP = float('inf')
 
-VOCAB_REMAIN_RATE = 0.93
+VOCAB_REMAIN_RATE = 0.97
 
 LEARNING_RATE = 1e-3
 DECAY_RATE = 0.5
@@ -788,7 +788,7 @@ class TextProcessor:
     def proc7(self, x):
         return re.sub('[\=\<\>\"\`\(\)\[\]\{\}]+', '', x)
     def proc8(self, x):
-        return re.sub('\'+s*', '', x)
+        return re.sub('[ ^]\'[ $]', '', x)
 
     def read(self, file_path):
         if not os.path.isfile(file_path):
@@ -808,12 +808,14 @@ class TextProcessor:
         new_lines = []
         n_lines = len(self.lines)
         for i, line in enumerate(self.lines):
-            if i % 1000 == 0: print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
+            if i % 1000 == 0 or i == n_lines - 1: 
+                print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
             for fn in proc_fn_list:
                 line = fn(line)
             line += '\n' if line[-1] != '\n' else ''
             new_lines.append(line)
 
+        print()
         new_content = ''.join(new_lines)
 
         if not inplace:
@@ -840,8 +842,8 @@ class TextProcessor:
 
 if __name__ == '__main__':
     model = Seq2seq()
-    encode_file_path = './data/twitter_chat/question'
-    decode_file_path = './data/twitter_chat/answer'
+    encode_file_path = './data/movie_dialogs/enc'
+    decode_file_path = './data/movie_dialogs/dec'
 
     tp = TextProcessor()
     tp.read(encode_file_path).process(inplace=True)
