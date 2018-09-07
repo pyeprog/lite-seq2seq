@@ -277,8 +277,8 @@ class Seq2seq:
 
         if n_buckets > 1:
             print('\tBucketizing...', end='')
-            encode_line_lens = map(len, parsed_encode_lines)
-            decode_line_lens = map(len, parsed_decode_lines)
+            encode_line_lens = [*map(len, parsed_encode_lines)]
+            decode_line_lens = [*map(len, parsed_decode_lines)]
 
             max_encode_len = max(encode_line_lens)
             max_decode_len = max(decode_line_lens)
