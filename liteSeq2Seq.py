@@ -43,11 +43,11 @@ DECAY_RATE = 0.5
 DECAY_EVERY = 1e3
 DECAY_START_AT = 8e3
 
+DEBUG = 1
 REPORT_EVERY = 50
 SHOW_EVERY = 200
 SUMMARY_EVERY = 50 
 SAVE_EVERY = 500
-DEBUG = 1
 
 if DEBUG:
     from pprint import pprint
@@ -854,8 +854,8 @@ if __name__ == '__main__':
     tp.read(encode_file_path).process(inplace=True)
     tp.read(decode_file_path).process(inplace=True)
 
-    # model.load('./models/07818100826456953142')
-    model.train(encode_file_path, decode_file_path)#, './models/07818100826456953142')
+    model.load('./models/chat')
+    # model.train(encode_file_path, decode_file_path)#, './models/07818100826456953142')
     while True:
         encode_str = input('< ')
         print('>> {}'.format(model.predict(encode_str)))
@@ -867,3 +867,4 @@ if __name__ == '__main__':
     # new_lines = tp.read(file1_path).process()
     # print(new_lines)
     # # tp.read(file2_path).process()
+
