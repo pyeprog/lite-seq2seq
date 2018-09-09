@@ -11,58 +11,127 @@ import math
 from collections import Counter
 from random import random
 from multiprocessing import Pool
+from multiprocessing import Process
 from itertools import chain
 
 # GatherTree ops don't load automatically. Adding import to force library to load
 # Fixed the KeyError: GatherTree
 from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
 
-# Specify save path of models
-MODEL_PATH = './models'
-if not os.path.isdir(MODEL_PATH):
-    os.mkdir(MODEL_PATH)
-
-# Hyper params
-EMBEDDING_DIM = 512
-ENCODER_RNN_SIZE = 1024 # even number only
-ENCODER_RNN_LAYERS_N = 3
-N_BUCKETS = 50
-BEAM_WIDTH = 3
-DROPOUT_KEEP_PROB = 0.8
-VALID_PORTION = 0.05
-T_BATCH_SIZE = 32
-I_BATCH_SIZE = 1
-MAX_GRADIENT_NORM = 5.0
-EPOCH = 10
-MAX_G_STEP = float('inf')
-
-VOCAB_REMAIN_RATE = 0.97
-
-LEARNING_RATE = 1e-3
-DECAY_RATE = 0.5
-DECAY_EVERY = 1e3
-DECAY_START_AT = 8e3
-
-DEBUG = 1
-REPORT_EVERY = 50
-SHOW_EVERY = 200
-SUMMARY_EVERY = 50 
-SAVE_EVERY = 500
-
-if DEBUG:
-    from pprint import pprint
-
 # Suppress warning log
 tf.logging.set_verbosity(tf.logging.FATAL)
 
+DEBUG = 1
+if DEBUG:
+    from pprint import pprint
+
 
 class Seq2seq:
-    def __init__(self):
+    model_path = './models'
+
+    @classmethod
+    def set_model_path(cls, model_path):
+        cls.model_path = model_path
+        if not os.path.isdir(model_path):
+            os.mkdir(model_path)
+
+    def __init__(self,
+            embedding_dim=512,
+            rnn_layer_size=1024, #even number only
+            n_rnn_layers=3,
+            beam_width=3,
+            keep_prob=0.8,
+            valid_portion=0.05,
+            train_batch_size=32,
+            infer_batch_size=1,
+            max_gradient_norm=5.0,
+            epoch=10,
+            max_global_step=float('inf'),
+            learning_rate=1e-3,
+            decay_rate=0.5,
+            decay_every=1e3,
+            decay_start_at=8e3,
+            n_buckets=50,
+            vocab_remain_rate=0.97,
+            report_every=50,
+            show_every=200,
+            summary_every=50,
+            save_every=500
+            ):
+                
+        # Hyper params for network structure
+        self.embedding_dim = embedding_dim
+        self.rnn_layer_size = rnn_layer_size
+        self.n_rnn_layers = n_rnn_layers
+        self.beam_width = beam_width
+        self.keep_prob = keep_prob
+        self.valid_portion = valid_portion
+        self.train_batch_size = train_batch_size
+        self.infer_batch_size = infer_batch_size
+        self.max_gradient_norm = max_gradient_norm
+
+        # Hyper params for training
+        self.epoch = epoch
+        self.max_global_step = max_global_step
+        self.learning_rate = learning_rate
+        self.decay_rate = decay_rate
+        self.decay_every = decay_every
+        self.decay_start_at = decay_start_at
+
+        # Hyper params for data processing
+        self.n_buckets = n_buckets
+        self.vocab_remain_rate = vocab_remain_rate
+
+        # Hyper params for logging
+        self.report_every = report_every
+        self.show_every = show_every
+        self.summary_every = summary_every
+        self.save_every = save_every
+
+        self.hparams = (
+            self.embedding_dim, 
+            self.rnn_layer_size, 
+            self.n_rnn_layers, 
+            self.beam_width, 
+            self.keep_prob, 
+            self.valid_portion, 
+            self.train_batch_size, 
+            self.infer_batch_size, 
+            self.max_gradient_norm, 
+            self.epoch, 
+            self.max_global_step, 
+            self.learning_rate, 
+            self.decay_rate, 
+            self.decay_every, 
+            self.decay_start_at, 
+            self.n_buckets, 
+            self.vocab_remain_rate, 
+            self.report_every, 
+            self.show_every, 
+            self.summary_every, 
+            self.save_every
+            )
+
+        # Specify save path of models
+        if not os.path.isdir(self.model_path):
+            os.mkdir(self.model_path)
+
+        # Specify unique id for each instance
         self._id = (str(random())[2:] + str(random())[2:])[:20]
-        self.model_ckpt_dir = os.path.join(MODEL_PATH, self._id)
+        self.model_ckpt_dir = os.path.join(self.model_path, self._id)
         self.model_ckpt_path = os.path.join(self.model_ckpt_dir, 'checkpoint.ckpt')
         
         self.tp = TextProcessor()
+
+
+    def set_id(self, new_id):
+        last_model_ckpt_dir = self.model_ckpt_dir
+
+        self._id = str(new_id)
+        self.model_ckpt_dir = os.path.join(self.model_path, self._id)
+        self.model_ckpt_path = os.path.join(self.model_ckpt_dir, 'checkpoint.ckpt')
+        os.rename(last_model_ckpt_dir, self.model_ckpt_dir)
+
 
     def __delete__(self):
         if hasattr(self, 'sess'):
@@ -141,10 +210,10 @@ class Seq2seq:
         return bleu
 
 
-    def _rnn_cell(self, rnn_size, dropout_keep_prob):
+    def _rnn_cell(self, rnn_size, keep_prob):
         lstm_cell = tf.nn.rnn_cell.LSTMCell(rnn_size)
                 #initializer=tf.random_uniform_initializer(-0.1, 0.1))
-        return tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=dropout_keep_prob, output_keep_prob=1.0)
+        return tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=keep_prob, output_keep_prob=1.0)
 
     def _word2vec_batch(self, seqs, vocab_size, batch_size):
         cur_batch_input = []
@@ -177,7 +246,7 @@ class Seq2seq:
                     cur_batch_input = []
                     cur_batch_target = []
 
-    def _padding_batch(self, inputs, targets, batch_size=T_BATCH_SIZE, input_padding_val=0, target_padding_val=0, forever=False):
+    def _padding_batch(self, inputs, targets, batch_size, input_padding_val=0, target_padding_val=0, forever=False):
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
         while True:
             for i in range(0, len(targets) // batch_size):
@@ -223,7 +292,7 @@ class Seq2seq:
         cur_count = 0
         for i, (word, count) in enumerate(word_count.most_common()):
             cur_count += count
-            if cur_count / n_words < VOCAB_REMAIN_RATE:
+            if cur_count / n_words < self.vocab_remain_rate:
                 vocabs.append(word)
             else: break
             print('\rFilter vocabs {}/{} = {}'.format(i+1, n_words, cur_count/n_words), end='', flush=True)
@@ -327,8 +396,8 @@ class Seq2seq:
         However, if the process is killed, memory will be released.
         '''
         with Pool(1) as process:
-            params = (encode_file_path, decode_file_path, load_model_path)
-            process.apply(self.unwrap_self_train, (self, *params))
+            params = (self, encode_file_path, decode_file_path, load_model_path)
+            process.apply(self.unwrap_self_train, [*params])
 
 
     def _train(self, encode_file_path, decode_file_path, load_model_path=None):
@@ -347,7 +416,7 @@ class Seq2seq:
             self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=self.n_buckets)
 
             # create placeholder
             ## why the shape is [None, None]? explain
@@ -356,10 +425,10 @@ class Seq2seq:
                 encoder_input = tf.placeholder(tf.int32, shape=[None, None], name='inputs')
                 decoder_target = tf.placeholder(tf.int32, shape=[None, None], name='targets')
                 decoder_input = tf.concat(
-                        [tf.fill([T_BATCH_SIZE,1], self.decoder_vocab_to_int['<GO>']), 
-                        tf.strided_slice(decoder_target, [0,0], [T_BATCH_SIZE,-1], [1,1])],
+                        [tf.fill([self.train_batch_size,1], self.decoder_vocab_to_int['<GO>']), 
+                        tf.strided_slice(decoder_target, [0,0], [self.train_batch_size,-1], [1,1])],
                         1)
-                dropout_keep_prob = tf.placeholder(tf.float32, name='dropout')
+                keep_prob = tf.placeholder(tf.float32, name='dropout')
                 
                 ## why does it need sequence length placeholder? explain
                 encoder_input_seq_lengths = tf.placeholder(tf.int32, shape=[None,], name='source_lens')
@@ -367,19 +436,18 @@ class Seq2seq:
 
 
 
-
                 ###### ENCODER ######
                 with tf.variable_scope('encoder'):
-                    encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), EMBEDDING_DIM,
+                    encoder_wordvec = tf.contrib.layers.embed_sequence(encoder_input, len(self.encoder_int_to_vocab), self.embedding_dim,
                             initializer=tf.initializers.random_uniform(-0.1,0.1))
                     
                     # reshape_encoder_input = tf.reshape(encoder_input, [])
-                    # encoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.encoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_weight')
-                    # encoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='encoder_embed_bias')
+                    # encoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.encoder_int_to_vocab), self.embedding_dim], minval=-0.1, maxval=0.1), name='encoder_embed_weight')
+                    # encoder_embedding_bias = tf.Variable(tf.random_uniform([self.embedding_dim], minval=-0.1, maxval=0.1), name='encoder_embed_bias')
                     # encoder_wordvec = tf.nn.embedding_lookup(encoder_embedding_weights, encoder_input) #+ encoder_embedding_bias
 
                     # # To use stacked uni-directional rnn encoder, open this
-                    # rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    # rnn_cell_list = [self._rnn_cell(self.rnn_layer_size, keep_prob) for _ in range(self.n_rnn_layers)]
                     # encoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
                     # encoder_output, encoder_final_state = tf.nn.dynamic_rnn(encoder_rnn, encoder_wordvec, sequence_length=encoder_input_seq_lengths, dtype=tf.float32)
 
@@ -389,8 +457,8 @@ class Seq2seq:
 
                     # To use stacked bi-directional rnn encoder, open this
                     # Explain for the state concat, explain
-                    rnn_cell_list_forward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
-                    rnn_cell_list_backward = [self._rnn_cell(ENCODER_RNN_SIZE // 2, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list_forward = [self._rnn_cell(self.rnn_layer_size // 2, keep_prob) for _ in range(self.n_rnn_layers)]
+                    rnn_cell_list_backward = [self._rnn_cell(self.rnn_layer_size // 2, keep_prob) for _ in range(self.n_rnn_layers)]
 
                     encoder_output, forward_final_state, backward_final_state = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
                             rnn_cell_list_forward, rnn_cell_list_backward, encoder_wordvec,
@@ -419,10 +487,10 @@ class Seq2seq:
                 ##### DECODER ######
 
                 with tf.variable_scope('decoder_cell'):
-                    decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_weight')
-                    # decoder_embedding_bias = tf.Variable(tf.random_uniform([EMBEDDING_DIM], minval=-0.1, maxval=0.1), name='decoder_embed_bias')
+                    decoder_embedding_weights = tf.Variable(tf.random_uniform([len(self.decoder_int_to_vocab), self.embedding_dim], minval=-0.1, maxval=0.1), name='decoder_embed_weight')
+                    # decoder_embedding_bias = tf.Variable(tf.random_uniform([self.embedding_dim], minval=-0.1, maxval=0.1), name='decoder_embed_bias')
                     decoder_wordvec = tf.nn.embedding_lookup(decoder_embedding_weights, decoder_input) #+ decoder_embedding_bias
-                    rnn_cell_list = [self._rnn_cell(ENCODER_RNN_SIZE, dropout_keep_prob) for _ in range(ENCODER_RNN_LAYERS_N)]
+                    rnn_cell_list = [self._rnn_cell(self.rnn_layer_size, keep_prob) for _ in range(self.n_rnn_layers)]
                     decoder_rnn = tf.nn.rnn_cell.MultiRNNCell(rnn_cell_list)
                     decoder_output_dense_layer = tf.layers.Dense(len(self.decoder_int_to_vocab), use_bias=False,
                             kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1), name='decoder_output_embedding')
@@ -435,14 +503,14 @@ class Seq2seq:
 
                     # Add attention mechanism
                     attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                            ENCODER_RNN_SIZE, encoder_output,
+                            self.rnn_layer_size, encoder_output,
                             memory_sequence_length=encoder_input_seq_lengths
                             )
 
                     # Wrapper Attention mechanism on plain rnn cell first
                     training_decoder = tf.contrib.seq2seq.AttentionWrapper(
                             decoder_rnn, attention_mechanism,
-                            attention_layer_size=ENCODER_RNN_SIZE
+                            attention_layer_size=self.rnn_layer_size
                             )
 
                     # Make decoder and it's initial state with wrapped rnn cell
@@ -450,7 +518,7 @@ class Seq2seq:
                             training_decoder,
                             # decoder_rnn, # Used for vanilla case
                             training_helper,
-                            training_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
+                            training_decoder.zero_state(self.train_batch_size,tf.float32).clone(cell_state=encoder_final_state),
                             # encoder_final_state, # Used for vanilla case
                             decoder_output_dense_layer
                             )
@@ -465,7 +533,7 @@ class Seq2seq:
                     # Tiled start_token <GO>
                     start_tokens = tf.tile(
                             tf.constant([self.decoder_vocab_to_int['<GO>']], dtype=tf.int32),
-                            [I_BATCH_SIZE],
+                            [self.infer_batch_size],
                             name='start_tokens')
 
                     # # To use greedy decoder, open this
@@ -479,26 +547,26 @@ class Seq2seq:
                      #     inference_decoder,
                      #     # decoder_rnn, # Used for vanilla case
                      #     inference_helper,
-                     #     inference_decoder.zero_state(T_BATCH_SIZE,tf.float32).clone(cell_state=encoder_final_state),
+                     #     inference_decoder.zero_state(self.train_batch_size,tf.float32).clone(cell_state=encoder_final_state),
                      #     # encoder_final_state, # Used for vanilla case
                      #     decoder_output_dense_layer
                      #     )
 
                     # To use beam search decoder, open this
                     # Beam search tile
-                    tiled_encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=BEAM_WIDTH)
-                    tiled_encoder_input_seq_lengths = tf.contrib.seq2seq.tile_batch(encoder_input_seq_lengths, multiplier=BEAM_WIDTH)
+                    tiled_encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=self.beam_width)
+                    tiled_encoder_input_seq_lengths = tf.contrib.seq2seq.tile_batch(encoder_input_seq_lengths, multiplier=self.beam_width)
                     # Explain the tile state, need explain, tile_batch can handle nested state
-                    tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(encoder_final_state, multiplier=BEAM_WIDTH)
+                    tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(encoder_final_state, multiplier=self.beam_width)
 
                     attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                            ENCODER_RNN_SIZE, tiled_encoder_output,
+                            self.rnn_layer_size, tiled_encoder_output,
                             memory_sequence_length=tiled_encoder_input_seq_lengths
                             )
 
                     inference_decoder = tf.contrib.seq2seq.AttentionWrapper(
                             decoder_rnn, attention_mechanism,
-                            attention_layer_size=ENCODER_RNN_SIZE
+                            attention_layer_size=self.rnn_layer_size
                             )
 
                     inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
@@ -506,10 +574,10 @@ class Seq2seq:
                             decoder_embedding_weights,
                             start_tokens,
                             self.decoder_vocab_to_int['<EOS>'],
-                            inference_decoder.zero_state(I_BATCH_SIZE*BEAM_WIDTH,tf.float32).clone(
+                            inference_decoder.zero_state(self.infer_batch_size*self.beam_width,tf.float32).clone(
                                 cell_state=tiled_encoder_final_state
                                 ),
-                            BEAM_WIDTH,
+                            self.beam_width,
                             decoder_output_dense_layer,
                             length_penalty_weight=0.0
                             )
@@ -548,22 +616,22 @@ class Seq2seq:
                     # crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     #         labels=decoder_target, logits=training_logits
                     #         )
-                    # cost = (tf.reduce_sum(crossent * mask) / T_BATCH_SIZE)
+                    # cost = (tf.reduce_sum(crossent * mask) / self.train_batch_size)
 
 
-                    # lr = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEP, DECAY_RATE, True)
+                    # lr = tf.train.exponential_decay(self.learning_rate, global_step, DECAY_STEP, self.decay_rate, True)
                     lr = tf.placeholder(tf.float32, name='learning_rate')
                     # optimizer = tf.train.GradientDescentOptimizer(lr)
                     optimizer = tf.train.AdamOptimizer(lr)
                     gradients = optimizer.compute_gradients(cost)
-                    capped_gradients = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in gradients if grad is not None]
+                    capped_gradients = [(tf.clip_by_value(grad, -self.max_gradient_norm, self.max_gradient_norm), var) for grad, var in gradients if grad is not None]
                     train_op = optimizer.apply_gradients(capped_gradients, global_step=global_step, name='train_op')
 
                     # # Clip by global norm
                     # trainable_params = tf.trainable_variables()
                     # gradients = tf.gradients(cost, trainable_params)
-                    # capped_gradients,_ = tf.clip_by_global_norm(gradients, MAX_GRADIENT_NORM)
-                    # optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+                    # capped_gradients,_ = tf.clip_by_global_norm(gradients, self.max_gradient_norm)
+                    # optimizer = tf.train.AdamOptimizer(self.learning_rate)
                     # train_op = optimizer.apply_gradients(zip(capped_gradients, trainable_params), global_step=global_step, name='train_op')
 
                 if DEBUG:
@@ -594,20 +662,23 @@ class Seq2seq:
                     dictionary = (self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int)
                     pkl.dump(dictionary, fp)
 
+                with open(os.path.join(self.model_ckpt_dir, 'hparams'), 'wb') as fp:
+                    pkl.dump(self.hparams, fp)
+
         else:
             # Pre-trained model has loaded
             print('Load pre-trained model')
             self.load(load_model_path)
 
             # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=N_BUCKETS)
+            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=self.n_buckets)
 
             with self.graph.as_default():
                 encoder_input = self.graph.get_tensor_by_name('inputs:0')
                 encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
                 decoder_target = self.graph.get_tensor_by_name('targets:0')
                 decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
-                dropout_keep_prob = self.graph.get_tensor_by_name('dropout:0')
+                keep_prob = self.graph.get_tensor_by_name('dropout:0')
                 decoder_output = self.graph.get_tensor_by_name('optimization/training_output:0')
                 lr = self.graph.get_tensor_by_name('optimization/learning_rate:0')
                 train_op = tf.get_collection("optimization")[0]
@@ -619,15 +690,15 @@ class Seq2seq:
         decode_pad_id = self.decoder_vocab_to_int['<PAD>']
 
         # Validate set reserve
-        n_valid_data = int(len(self.encode_seqs) * VALID_PORTION) // T_BATCH_SIZE * T_BATCH_SIZE
+        n_valid_data = int(len(self.encode_seqs) * self.valid_portion) // self.train_batch_size * self.train_batch_size
         valid_encode_seqs = self.encode_seqs[:n_valid_data]
         valid_decode_seqs = self.decode_seqs[:n_valid_data]
-        valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id, forever=True)
+        valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, self.train_batch_size, encode_pad_id, decode_pad_id, forever=True)
 
         train_encode_seqs = self.encode_seqs[n_valid_data:]
         train_decode_seqs = self.decode_seqs[n_valid_data:]
 
-        n_batch = len(train_encode_seqs) // T_BATCH_SIZE
+        n_batch = len(train_encode_seqs) // self.train_batch_size
 
         # Train the model
         with self.graph.as_default():
@@ -635,7 +706,7 @@ class Seq2seq:
             saver = tf.train.Saver(max_to_keep=1)
 
             # Learning rate generator
-            lr_gen = self.lr_schedule(LEARNING_RATE, DECAY_START_AT, DECAY_EVERY, DECAY_RATE)
+            lr_gen = self.lr_schedule(self.learning_rate, self.decay_start_at, self.decay_every, self.decay_rate)
 
             if DEBUG:
                 summary_writer = tf.summary.FileWriter(os.path.join(self.model_ckpt_dir, 'tensorboard'))
@@ -644,12 +715,12 @@ class Seq2seq:
 
             g_step = self.sess.run(global_step) % n_batch
             # Pass trained batch
-            batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id)
+            batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, self.train_batch_size, encode_pad_id, decode_pad_id)
             for _ in range(g_step):
                 _ = next(batch_generator)
 
             # Start training
-            for epoch_i in range(1, EPOCH+1):
+            for epoch_i in range(1, self.epoch+1):
                 for cur_batch_pack in batch_generator:
                     inputs, inputs_lens, targets, targets_lens = cur_batch_pack
 
@@ -661,13 +732,13 @@ class Seq2seq:
                                 encoder_input_seq_lengths:inputs_lens,
                                 decoder_target:targets,
                                 decoder_target_seq_lengths:targets_lens,
-                                dropout_keep_prob: DROPOUT_KEEP_PROB,
+                                keep_prob: self.keep_prob,
                                 lr: lr_val
                                 }
                             )
                     print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
 
-                    if g_step % REPORT_EVERY == 0:
+                    if g_step % self.report_every == 0:
                         valid_batch_pack = next(valid_batch_generator)
                         valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
 
@@ -676,13 +747,13 @@ class Seq2seq:
                             encoder_input_seq_lengths:valid_inputs_lens,
                             decoder_target:valid_targets,
                             decoder_target_seq_lengths:valid_targets_lens,
-                            dropout_keep_prob: 1.0
+                            keep_prob: 1.0
                             })
 
                         bleu_score = self._bleu(prediction_lists, valid_targets)
-                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, EPOCH, g_step, train_loss, val_loss, bleu_score, lr_val))
+                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, self.epoch, g_step, train_loss, val_loss, bleu_score, lr_val))
 
-                    if g_step % SHOW_EVERY == 0:
+                    if g_step % self.show_every == 0:
                         # Vivid example
                         print('*********')
                         idx = np.random.choice(np.arange(len(prediction_lists)))
@@ -694,26 +765,26 @@ class Seq2seq:
                         print('EXPECT: ', target_str)
                         print('*********')
                     
-                    if g_step % SAVE_EVERY == 0:
+                    if g_step % self.save_every == 0:
                         saver.save(self.sess, self.model_ckpt_path, write_meta_graph=True)
 
-                    if DEBUG and g_step % SUMMARY_EVERY == 0:
+                    if DEBUG and g_step % self.summary_every == 0:
                         summary_info = self.sess.run(summary_ops, feed_dict={
                             encoder_input:inputs,
                             encoder_input_seq_lengths:inputs_lens,
                             decoder_target:targets,
                             decoder_target_seq_lengths:targets_lens,
-                            dropout_keep_prob: DROPOUT_KEEP_PROB
+                            keep_prob: self.keep_prob
                             })
                         summary_writer.add_summary(summary_info, self.sess.run(global_step))
 
-                    if g_step > MAX_G_STEP:
+                    if g_step > self.max_global_step:
                         break
-                if g_step > MAX_G_STEP:
+                if g_step > self.max_global_step:
                     break
                 
                 # Get a new batch-generator
-                batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, T_BATCH_SIZE, encode_pad_id, decode_pad_id)
+                batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, self.train_batch_size, encode_pad_id, decode_pad_id)
 
 
     def predict(self, encode_str):
@@ -733,15 +804,15 @@ class Seq2seq:
             encoder_input = self.graph.get_tensor_by_name('inputs:0')
             encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
             decoder_target_seq_lengths = self.graph.get_tensor_by_name('target_lens:0')
-            dropout_keep_prob = self.graph.get_tensor_by_name('dropout:0')
+            keep_prob = self.graph.get_tensor_by_name('dropout:0')
             prediction = self.graph.get_tensor_by_name('optimization/predictions:0')
 
             predict_list = self.sess.run(
                     prediction, 
                     feed_dict={
-                        encoder_input:inputs*I_BATCH_SIZE,
-                        encoder_input_seq_lengths:inputs_lens*I_BATCH_SIZE,
-                        dropout_keep_prob: 1.0
+                        encoder_input:inputs*self.infer_batch_size,
+                        encoder_input_seq_lengths:inputs_lens*self.infer_batch_size,
+                        keep_prob: 1.0
                         }
                     )
 
@@ -763,8 +834,34 @@ class Seq2seq:
         if not os.path.isfile(os.path.join(path, 'dictionary')):
             raise ValueError('There is no dictionary file in {}'.format(path))
 
+        if not os.path.isfile(os.path.join(path, 'hparams')):
+            raise ValueError('There is no hparams file in {}'.format(path))
+
         with open(os.path.join(path, 'dictionary'), 'rb') as fp:
             self.encoder_int_to_vocab, self.encoder_vocab_to_int, self.decoder_int_to_vocab, self.decoder_vocab_to_int = pkl.load(fp)
+
+        with open(os.path.join(path, 'hparams'), 'rb') as fp:
+            (self.embedding_dim, 
+                self.rnn_layer_size, 
+                self.n_rnn_layers, 
+                self.beam_width, 
+                self.keep_prob, 
+                self.valid_portion, 
+                self.train_batch_size, 
+                self.infer_batch_size, 
+                self.max_gradient_norm, 
+                self.epoch, 
+                self.max_global_step, 
+                self.learning_rate, 
+                self.decay_rate, 
+                self.decay_every, 
+                self.decay_start_at, 
+                self.n_buckets, 
+                self.vocab_remain_rate, 
+                self.report_every, 
+                self.show_every, 
+                self.summary_every, 
+                self.save_every) = pkl.load(fp)
 
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -806,6 +903,9 @@ class TextProcessor:
 
         return self
 
+    def append(self, proc_fn):
+        self.proc_fn_list.append(proc_fn)
+
     def process(self, proc_fn_list=[], inplace=False, overwrite=False):
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
@@ -846,19 +946,121 @@ class TextProcessor:
 
 
 if __name__ == '__main__':
-    model = Seq2seq()
-    encode_file_path = './data/movie_dialogs/enc'
-    decode_file_path = './data/movie_dialogs/dec'
+    import argparse
+    parser = argparse.ArgumentParser(
+            description='Build a sequence to sequence bot')
+    parser.add_argument(
+            '-e', '--enc', type=str, help='The path of encode file, which contains questions')
+    parser.add_argument(
+            '-d', '--dec', type=str, help='The path of decode file, which contains answers')
+    parser.add_argument(
+            '--id', type=str, help='The id of the model, if not set the id will be a unique sequence of numbers')
+    parser.add_argument(
+            '--model', help='The path of pre-trained model, if not set, then new model will be trained')
+    parser.add_argument(
+            '--loop', action='store_true', help='Contitue predict answers until pressing ctrl-c')
+    parser.add_argument(
+            '--input', help='Input one string and get prediction return')
 
-    tp = TextProcessor()
-    tp.read(encode_file_path).process(inplace=True)
-    tp.read(decode_file_path).process(inplace=True)
+    # Advanced arguments
+    parser.add_argument(
+            '--embedding_dim', type=int, help='Size of embedding layer size of both encoder and decoder, default to 512')
+    parser.add_argument(
+            '--rnn_layer_size', type=int, help='Single rnn layer size of both encoder and decoder, default to 1024')
+    parser.add_argument(
+            '--n_rnn_layers', type=int, help='Number of rnn layers of both encoder and decoder, default to 3')
+    parser.add_argument(
+            '--beam_width', type=int, help='The width of beam search, default to 3')
+    parser.add_argument(
+            '--keep_prob', type=float, help='Output(dropout) keep probability for each rnn node, default to 0.8')
+    parser.add_argument(
+            '--valid_portion', type=float, help='Percentage of data used as validation set, default to 0.05')
+    parser.add_argument(
+            '--train_batch_size', type=int, help='Batch size while training, default to 32')
+    parser.add_argument(
+            '--infer_batch_size', type=int, help='Batch size while infering, default to 1')
+    parser.add_argument(
+            '--max_gradient_norm', type=float, help='Clip value for global gradients, default to 5.0')
+    parser.add_argument(
+            '--epoch', type=int, help='Number of training epoch, default to 10')
+    parser.add_argument(
+            '--max_global_step', type=int, help='Maximum training steps, default to infinity, which means training for {epoch} times')
+    parser.add_argument(
+            '--learning_rate', type=float, help='The learning rate, default to 0.001')
+    parser.add_argument(
+            '--decay_start_at', type=int, help='The learning rate begin to decay after training {this} number of steps, default to 8000')
+    parser.add_argument(
+            '--decay_every', type=int, help='For every {this} steps, learning_rate=learning_rate * decay_rate, default to 1000')
+    parser.add_argument(
+            '--decay_rate', type=float, help='The decay rate of learning rate, default to 0.5')
+    parser.add_argument(
+            '--n_buckets', type=int, help='Seperate training sequence into {this} buckets, training sequences in same bucket have similar length, default to 50')
+    parser.add_argument(
+            '--vocab_remain_rate', type=float, help='Choose a vocab size that can cover {this} percentage of total words, default to 0.97')
+    parser.add_argument(
+            '--report_every', type=int, help='Report metrics on validation set for every {this} steps, default to 50')
+    parser.add_argument(
+            '--show_every', type=int, help='Show an translation example for every {this} steps, default to 200')
+    parser.add_argument(
+            '--summary_every', type=int, help='Save summary info for every {this} steps, only used when DEBUG=1, default to 50')
+    parser.add_argument(
+            '--save_every', type=int, help='Save the checkpoint for every {this} steps, default to 500')
 
-    model.load('./models/chat')
-    # model.train(encode_file_path, decode_file_path)#, './models/07818100826456953142')
-    while True:
-        encode_str = input('< ')
-        print('>> {}'.format(model.predict(encode_str)))
+
+    args = parser.parse_args()
+
+    model_args = vars(args).copy()
+    _ = [model_args.pop(key) for key in ['enc', 'dec', 'id', 'model', 'loop', 'input']]
+    model_args = {k:v for k, v in model_args.items() if v != None}
+
+    model = Seq2seq(**model_args)
+    if args.id != None:
+        model.set_id(args.id)
+
+    if args.model != None:
+        model_path = args.model
+        model.load(model_path)
+
+        if args.loop:
+            while True:
+                input_str = input('> ')
+                print('>> {}'.format(model.predict(input_str)))
+
+        elif args.input != None:
+            print('> {}'.format(args.input))
+            print('>> {}'.format(model.predict(args.input)))
+
+    # (Re)train the model
+    if args.enc != None and args.dec != None:
+        tp = TextProcessor()
+        if not os.path.isfile(args.enc+'.origin'):
+            tp.read(args.enc).process(inplace=True)
+        if not os.path.isfile(args.dec+'.origin'):
+            tp.read(args.dec).process(inplace=True)
+
+        if args.model != None:
+            model._train(args.enc, args.dec, args.model)
+        else:
+            model.train(args.enc, args.dec)
+
+        print('Model is saved at {}'.format(model.model_ckpt_dir))
+    elif not all([args.enc, args.dec]) and any([args.enc, args.dec]):
+        raise ValueError('You should specify both enc and dec file path')
+
+    # model = Seq2seq()
+
+    # encode_file_path = './data/movie_dialogs/enc'
+    # decode_file_path = './data/movie_dialogs/dec'
+
+    # tp = TextProcessor()
+    # tp.read(encode_file_path).process(inplace=True)
+    # tp.read(decode_file_path).process(inplace=True)
+
+    # # # model.load('./models/chat')
+    # model.train(encode_file_path, decode_file_path, './models/very_dull')
+    # while True:
+    #     encode_str = input('< ')
+    #     print('>> {}'.format(model.predict(encode_str)))
 
     # file1_path = '/Users/pd/Downloads/europarl-v7.fr-en.en'
     # file2_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr'
