@@ -692,12 +692,14 @@ class Seq2seq:
 
         # Validate set reserve
         n_valid_data = int(len(self.encode_seqs) * self.valid_portion) // self.train_batch_size * self.train_batch_size
-        valid_encode_seqs = self.encode_seqs[:n_valid_data]
-        valid_decode_seqs = self.decode_seqs[:n_valid_data]
+        valid_idx_set = set(np.random.choice(np.arange(len(self.encode_seqs)), n_valid_data, replace=False))
+        
+        valid_encode_seqs = [seq for i, seq in enumerate(self.encode_seqs) if i in valid_idx_set]
+        valid_decode_seqs = [seq for i, seq in enumerate(self.decode_seqs) if i in valid_idx_set]
         valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, self.train_batch_size, encode_pad_id, decode_pad_id, forever=True)
 
-        train_encode_seqs = self.encode_seqs[n_valid_data:]
-        train_decode_seqs = self.decode_seqs[n_valid_data:]
+        train_encode_seqs = [seq for i, seq in enumerate(self.encode_seqs) if i not in valid_idx_set]
+        train_decode_seqs = [seq for i, seq in enumerate(self.decode_seqs) if i not in valid_idx_set]
 
         n_batch = len(train_encode_seqs) // self.train_batch_size
 
