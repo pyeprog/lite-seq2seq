@@ -130,7 +130,8 @@ class Seq2seq:
         self._id = str(new_id)
         self.model_ckpt_dir = os.path.join(self.model_path, self._id)
         self.model_ckpt_path = os.path.join(self.model_ckpt_dir, 'checkpoint.ckpt')
-        os.rename(last_model_ckpt_dir, self.model_ckpt_dir)
+        if os.path.isdir(last_model_ckpt_dir):
+            os.rename(last_model_ckpt_dir, self.model_ckpt_dir)
 
 
     def __delete__(self):
@@ -1014,6 +1015,7 @@ if __name__ == '__main__':
     model_args = {k:v for k, v in model_args.items() if v != None}
 
     model = Seq2seq(**model_args)
+
     if args.id != None:
         model.set_id(args.id)
 
