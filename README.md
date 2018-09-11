@@ -217,6 +217,13 @@ Specify hyperparameters with --hyperparameters. For example, you want to specify
 python liteSeq2seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --beam_width 10 --save_every 20 --keep_prob 0.5
 ```
 
+## Tensorboard
+Tensorboard is available and information is gathered for every {summary_every} steps. Summary info of each model is saved beside its checkpoint file.
+You can simply launch tensorboard sever in terminal. Specify --logdir with the path you save your models in.
+```terminal
+tensorboard --logdir .models/
+```
+
 ## Evaluation
 ### The translation result of English to Vietnamese
 ```
