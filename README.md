@@ -1,4 +1,4 @@
-# LiteSeq2Seq - a super light weight seq2seq core
+# lite-seq2seq - a super light weight seq2seq core
 
 This project is aimed at creating a super easy way to put a modern seq2seq model in use. We want to keep it simple, handy with sufficient ability to fitting complex sequence transformation process.
 The default model equips with bucket, attention mechanism, stack bidirectional encoder and beam search. Experiment on some test translation dataset indicates that the fitting ability of our default model is much better than that of vanilla seq2seq.
