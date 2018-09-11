@@ -30,7 +30,7 @@ class Seq2seq:
     model_path = './models'
 
     @classmethod
-    def set_model_path(cls, model_path):
+    def set_model_dir(cls, model_path):
         cls.model_path = model_path
         if not os.path.isdir(model_path):
             os.mkdir(model_path)
@@ -126,6 +126,8 @@ class Seq2seq:
 
     def set_id(self, new_id):
         last_model_ckpt_dir = self.model_ckpt_dir
+        if os.path.isdir(os.path.join(self.model_path, new_id)):
+            raise RuntimeError('model named {} is existed'.format(new_id))
 
         self._id = str(new_id)
         self.model_ckpt_dir = os.path.join(self.model_path, self._id)
@@ -885,7 +887,7 @@ class TextProcessor:
     def proc3(self, x):
         return re.sub('\{.*?\}', '', x)
     def proc4(self, x):
-        return re.sub('\w\.{,1}\w\.*', lambda y:y.group().replace('.',''), x)
+        return re.sub('\w+{,1}\w\.*', lambda y:y.group().replace('.',''), x)
     def proc5(self, x):
         return re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x)
     def proc6(self, x):
@@ -932,7 +934,8 @@ class TextProcessor:
         else:
             filedir = os.path.dirname(self.file_path)
             filename = os.path.basename(self.file_path)
-            os.rename(self.file_path, os.path.join(filedir, filename+'.origin'))
+            if not overwrite:
+                os.rename(self.file_path, os.path.join(filedir, filename+'.origin'))
             with open(self.file_path, 'w') as fp:
                 fp.write(new_content)
             return self.file_path
