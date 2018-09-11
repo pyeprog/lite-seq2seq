@@ -3,8 +3,11 @@
 This project is aimed at creating a super easy way to put a modern seq2seq model in use. We want to keep it simple, handy with sufficient ability to fitting complex sequence transformation process.
 The default model equips with bucket, attention mechanism, stack bidirectional encoder and beam search. Experiment on some test translation dataset indicates that the fitting ability of our default model is much better than that of vanilla seq2seq.
 
+## Prerequisite
+- Only Tensorflow (>1.4)
+
 ## Features
-- Single file module,which means only liteSeq2Seq.py is necessary. Super easy to bring its power to other project.
+- Single file module,which means only liteSeq2Seq.py is necessary. Super easy to bring its power to other projects.
 - Only 1 dependency -- tensorflow. It's safe to be stable version(>1.4). Version earlier than that has not been tested.
 - Super simple API. You can remember them in seconds, `train` and `predict`.
 - Flexibility remains. You can tune the model as much as you want. Nearly all parameters are configurable.
