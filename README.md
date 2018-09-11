@@ -81,11 +81,11 @@ tp.read(file2_path).process(proc_fn_list=[proc1, proc2], inplace=True)
 ```python
 tp = TextProcessor()
 
-# Overwrite the processed content into origin file, thus no file\_path.origin will not be generated 
+# Overwrite the processed content into origin file, thus no file_path.origin will not be generated 
 tp.read(file_path).process(inplace=True, overwrite=True)
 
 # If you want to get the processed content instead of writing content into file, you can do
-# content\_lines will be a list of strings. Each string represents one line of the file.
+# content_lines will be a list of strings. Each string represents one line of the file.
 content_lines = tp.read(file_path).process(inplace=False)
 
 # Custom methods are available
@@ -119,11 +119,11 @@ prediction_str = model.predict(encode_str)
 It's very simple to use Seq2seq, under default hyper-parameters, you just need to specify two file path to train method and use predict method to transform text. 
 After training, you model will be saved automatically at `<liteSeq2Seq.py dir>/models/<model_id>`. 
 
-If you want to save the model to other dir. Use `Seq2seq.set\_model\_dir('new\_dir')` before creating instance of Seq2seq. 
+If you want to save the model to other dir. Use `Seq2seq.set_model_dir('new_dir')` before creating instance of Seq2seq. 
 
-Use `model.get\_id()` to get your model's default id. The default id will be a unique sequence of 20 numbers
+Use `model.get_id()` to get your model's default id. The default id will be a unique sequence of 20 numbers
 
-Use `model.set\_id(new\_id)` to set your own id. The default id will be overwrited.
+Use `model.set_id(new_id)` to set your own id. The default id will be overwrited.
 
 ### Load model for prediction
 ```python
@@ -212,7 +212,7 @@ python liteSeq2seq.py --model './models/model_id' --loop
 ```
 
 ### Customize the model for training
-Specify hyperparameters with --hyperparameters. For example, you want to specify beam_width, just add `--beam\_width 10`
+Specify hyperparameters with --hyperparameters. For example, you want to specify beam_width, just add `--beam_width 10`
 ```terminal
 python liteSeq2seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --beam_width 10 --save_every 20 --keep_prob 0.5
 ```
