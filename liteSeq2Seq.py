@@ -1,3 +1,27 @@
+'''
+MIT License
+
+Copyright (c) 2018 Weilong Liao
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -31,6 +55,11 @@ class Seq2seq:
 
     @classmethod
     def set_model_dir(cls, model_path):
+        '''
+        Set the dir to save models
+        @model_path: str, directory to save your models, default to ./models
+        @return: None
+        '''
         cls.model_path = model_path
         if not os.path.isdir(model_path):
             os.mkdir(model_path)
@@ -58,6 +87,31 @@ class Seq2seq:
             summary_every=50,
             save_every=500
             ):
+        '''
+        Create a seq2seq instance
+        @embedding_dim  :int, Embedding layer size
+        @rnn_layer_size :int, Single lstm layer size, EVEN NUMBER ONLY, set for both encoder and decoder
+        @n_rnn_layers :int, Number of layers of lstm network, set for both encoder and decoder
+        @beam_width :int, Width of beam search
+        @keep_prob :float, Keep probability for each rnn node
+        @valid_portion :float, Portion seperated for validtion
+        @train_batch_size :int, Batch size while training
+        @infer_batch_size :int, Batch size while infering
+        @max_gradient_norm :float, Clip value for global gradients
+        @epoch :int, Number of training epoch
+        @max_global_step :int, Maximum training steps, default to infinity, which means training for {epoch} times
+        @learning_rate :float, The learning rate
+        @decay_rate :float, The decay rate of learning rate
+        @decay_every :int, For every {this} steps, learning_rate=learning_rate * decay_rate
+        @decay_start_at :int, The learning rate begin to decay after training {this} number of steps
+        @n_buckets :int, Seperate training sequence into {this} buckets, training sequences in same bucket have similar length
+        @vocab_remain_rate :float, Choose a vocab size that can cover {this} percentage of total words
+        @report_every :int, Print validation score for every {this} steps
+        @show_every :int, Print example of transformation for every {this} steps
+        @summary_every :int, Save summery info for tensorboard for every {this} steps
+        @save_every :int, Save checkpoint for every {this} steps
+        @return: None
+        '''
                 
         # Hyper params for network structure
         self.embedding_dim = embedding_dim
@@ -125,6 +179,11 @@ class Seq2seq:
 
 
     def set_id(self, new_id):
+        '''
+        Set new id to this seq2seq instance, it will modify the saved model path also.
+        @new_id: str, new id specified
+        @return: None
+        '''
         last_model_ckpt_dir = self.model_ckpt_dir
         if os.path.isdir(os.path.join(self.model_path, new_id)):
             raise RuntimeError('model named {} is existed'.format(new_id))
@@ -137,19 +196,34 @@ class Seq2seq:
 
 
     def __delete__(self):
+        '''
+        Close session and free occupied memory
+        '''
         if hasattr(self, 'sess'):
             self.sess.close()
 
 
     def get_id(self):
+        '''
+        Return id of this seq2seq instance
+        '''
         return self._id
 
 
     def get_ckpt_dir(self):
+        '''
+        Return the saving path of this seq2seq instance
+        '''
         return self.model_ckpt_dir
 
 
     def _get_ngrams(self, segment, max_order):
+        '''
+        Calculate the ngrams for bleu score
+        @segment: list, list of words for one sentence
+        @max_order: int, 1-gram, 2-gram ... max_order-gram will be calculated
+        @return: dict, key: tuple of words, value: number of occurrence of the word tuple.
+        '''
         ngram_counts = Counter()
         for order in range(1, max_order + 1):
             for i in range(0, len(segment) - order + 1):
@@ -159,6 +233,14 @@ class Seq2seq:
 
 
     def _bleu(self, gen_lists, refer_lists, max_order=4, smooth=True):
+        '''
+        Calculate the bleu score given a list of generated sentence and a list of given sentence for reference.
+        @gen_lists: list, each item in list is a list of word token. [[token0, token1, ..], [tokenX, tokenY, ..], ..]
+        @refer_lists: list, each item in list is a list of reference word token, like gen_lists
+        @max_order: int, the max order for n-gram
+        @smooth: bool, if False, bleu score might be 0.0 more often.
+        @return: float, the bleu score of the gen_lists
+        '''
         matches_by_order = [0] * max_order
         possible_matches_by_order = [0] * max_order
         refer_length = 0
@@ -214,42 +296,27 @@ class Seq2seq:
 
 
     def _rnn_cell(self, rnn_size, keep_prob):
+        '''
+        Generate lstm cell with dropout wrapper
+        @rnn_size: int, the size of single layer
+        @keep_prob: float, the keep probability for each rnn node
+        @return: rnn_cell with dropout wrapper
+        '''
         lstm_cell = tf.nn.rnn_cell.LSTMCell(rnn_size)
                 #initializer=tf.random_uniform_initializer(-0.1, 0.1))
         return tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=keep_prob, output_keep_prob=1.0)
 
-    def _word2vec_batch(self, seqs, vocab_size, batch_size):
-        cur_batch_input = []
-        cur_batch_target = []
-        for seq in seqs:
-            for i, w_id in enumerate(seq):
-                cur_input = [0] * vocab_size
-                cur_input[w_id] = 1
-                if i < len(seq) - 1:
-                    cur_batch_input.append(cur_input)
-
-                    cur_target = [0] * vocab_size
-                    cur_target[seq[i+1]] = 1
-                    cur_batch_target.append(cur_target)
-
-                if len(cur_batch_input) == batch_size:
-                    yield cur_batch_input, cur_batch_target
-                    cur_batch_input = []
-                    cur_batch_target = []
-
-                if 0 < i:
-                    cur_batch_input.append(cur_input)
-
-                    cur_target = [0] * vocab_size
-                    cur_target[seq[i-1]] = 1
-                    cur_batch_target.append(cur_target)
-                    
-                if len(cur_batch_input) == batch_size:
-                    yield cur_batch_input, cur_batch_target
-                    cur_batch_input = []
-                    cur_batch_target = []
-
     def _padding_batch(self, inputs, targets, batch_size, input_padding_val=0, target_padding_val=0, forever=False):
+        '''
+        Generate padding batch
+        @inputs: list, each item of the list is a list of word tokens for encoding
+        @targets: list, each item of the list is a list of word tokens for decoding
+        @batch_size: int, the batch size
+        @input_padding_val: int, the token number of padding for encoding sequences
+        @target_padding_val: int, the token number of padding for decoding sequences 
+        @forever: bool, if True, repeating generating batch forever. if False, then just one round
+        @return: generator, for each iteration it will return, batch_encoding_seqs, batch_encoding_seqs_lens, batch_decoding_seqs, batch_decoding_seqs_lens
+        '''
         decoder_eos_id = self.decoder_vocab_to_int['<EOS>']
         while True:
             for i in range(0, len(targets) // batch_size):
@@ -274,6 +341,11 @@ class Seq2seq:
 
     
     def _parse_dict(self, file_path):
+        '''
+        Given text file, return the vocab_to_int and int_to_vocab dictionary. The vocab size is effected by 'vocab_remain_rate' 
+        @file_path: str, the file path of text dataset
+        @return: (dict, dict), return a tuple of (int_to_vocab, vocab_to_int)
+        '''
         with open(file_path, 'r') as fp:
             lines = fp.readlines()
 
@@ -308,6 +380,15 @@ class Seq2seq:
 
 
     def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
+        '''
+        Parse both files for encoding and decoding, given number of buckets and their vocab_to_int dictionary.
+        @encode_file_path: str, the file path for encoding
+        @decode_file_path: str, the file path for decoding
+        @encodr_vocab_to_int: dict, the vocab_to_int dictionary for encoding
+        @decodr_vocab_to_int: dict, the vocab_to_int dictionary for decoding
+        @n_buckets: int, the number of bucket for rearranging order of sequences, that lengths of sequences in the same bucket is as close as possible.
+        @return: (list, list), return a tuple of two lists, (encode_seqs, decode_seqs), each of them is a list of tokenized words list.
+        '''
         with open(encode_file_path, 'r') as fp:
             encode_lines = fp.readlines()
         with open(decode_file_path, 'r') as fp:
@@ -375,6 +456,14 @@ class Seq2seq:
         return parsed_encode_lines, parsed_decode_lines
 
     def lr_schedule(self, lr, start_p, every_step, decay_rate):
+        '''
+        A learning rate scheduler for flexible learning rate decaying
+        @lr: float, the original learning rate
+        @start_p: int, when global step reach start_p, the learning rate begins to decay
+        @every_step: int, the learning rate will decay for every {this} steps
+        @decay_rate: float, new learning rate = last learning rate * decay_rate
+        @return: generator, each iteration will return a learning rate
+        '''
         global_step = 0
         while True:
             if global_step > start_p:
@@ -384,30 +473,32 @@ class Seq2seq:
             yield lr
 
     @staticmethod
-    def unwrap_self_train(*arg, **kwarg):
+    def _unwrap_self_train(*arg, **kwarg):
         '''
          Process wrapper, since multiprocessing cannot call instance method
-         You need a outer function
+         You need a outer function to wrap you instance method
         '''
         return Seq2seq._train(*arg, **kwarg)
 
     
     def train(self, encode_file_path, decode_file_path, load_model_path=None):
         '''
-        A process wrapper for train method
-        If you use gpu to train the model, memory will not be released, even after closing session
+        A process wrapper for _train method
+        If you use gpu to train the model, memory will not be released, even after session closed. :(
         However, if the process is killed, memory will be released.
+        Thus for training, we spawn a process to do the training work.
         '''
         with Pool(1) as process:
             params = (self, encode_file_path, decode_file_path, load_model_path)
-            process.apply(self.unwrap_self_train, [*params])
+            process.apply(self._unwrap_self_train, [*params])
 
 
     def _train(self, encode_file_path, decode_file_path, load_model_path=None):
         '''
-        Train the model for the first time or retrain the model
+        Main training method. After training your model instance will be saved.
         @encode_file_path: str, the path of the encoder training file
         @decode_file_path: str, the path of the decoder training file
+        @load_model_path: str, the path of existed model directory
         @return: None
         '''
         if not load_model_path:
@@ -793,6 +884,11 @@ class Seq2seq:
 
 
     def predict(self, encode_str):
+        '''
+        Predict the sequence transformation. Make sure you load the model before using this method.
+        @encode_str: str, the input string that we give to model for transforming. 
+        @return: str, the answer string of the model
+        '''
         if not hasattr(self, 'sess'):
             self.load(self.model_ckpt_dir)
 
@@ -826,6 +922,11 @@ class Seq2seq:
 
 
     def load(self, path):
+        '''
+        Load existed model. Error will be raised if not success.
+        @path: str, the path of existed model
+        @return: None
+        '''
         if not os.path.isdir(path):
             raise ValueError('{} is not valid path, your model is probably untrained'.format(path))
 
@@ -877,6 +978,9 @@ class Seq2seq:
 
 class TextProcessor:
     def __init__(self):
+        '''
+        A simple processor for text dataset
+        '''
         self.proc_fn_list = [self.proc1, self.proc2, self.proc3, self.proc4, self.proc5, self.proc6, self.proc7, self.proc8]
 
     # pickle cann't dump lambda function in py3, so...
@@ -898,6 +1002,11 @@ class TextProcessor:
         return re.sub('[ ^]\'[ $]', '', x)
 
     def read(self, file_path):
+        '''
+        Load file content into processor instance.
+        @file_path: str, the path of file you want to process
+        @return: self, return self instance for chaining behaviour
+        '''
         if not os.path.isfile(file_path):
             raise ValueError('{} is not valid file path'.format(file_path))
         else:
@@ -909,9 +1018,21 @@ class TextProcessor:
         return self
 
     def append(self, proc_fn):
+        '''
+        Append subprocessing method to default method stack.
+        @proc_fn: function, function with a string as input and a string as output
+        @return: None
+        '''
         self.proc_fn_list.append(proc_fn)
 
     def process(self, proc_fn_list=[], inplace=False, overwrite=False):
+        '''
+        Apply process methods on each line of the file
+        @proc_fn_list: list, default to empty list, if specified, default processing method stack will be overwrited.
+        @inplace: bool, if True, processed content will write back to <file_path> you read in.
+        @overwrite: bool, if False, the original file will be saved as <file_path>.origin and processed content will be saved at <file_path>. If True, the origin version will not be saved.
+        @return: list or string, if inplace==True, the <file_path> will be returned, if inplace==False, a list of processed sentences will be returned.
+        '''
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
 
@@ -941,6 +1062,11 @@ class TextProcessor:
             return self.file_path
 
     def process_str(self, string, proc_fn_list=[]):
+        '''
+        Process a single string and return the processed string
+        @string: str, input string
+        @proc_fn_list: list, default to empty list and use default processing methods. If specified, only your methods will be used.
+        '''
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
 

@@ -191,30 +191,30 @@ model = Seq2seq(
 | save_every        | int       | Save checkpoint for every {this} steps                       |
 
 ## Use Seq2seq via CLI
-In terminal you can enter `python liteSeq2seq.py -h` or `python liteSeq2seq.py --help` for more info. 
+In terminal you can enter `python liteSeq2Seq.py -h` or `python liteSeq2Seq.py --help` for more info. 
 ### Start training
 If you specify --enc, --dec, you will start to train a new model
 ```terminal
-python liteSeq2seq.py --enc 'path of input_str_file' --dec 'path of output_str_file'
+python liteSeq2Seq.py --enc 'path of input_str_file' --dec 'path of output_str_file'
 ```
 
 ### Continue training
 If you specify --enc, --dec, --model, you will continue training existed model. Enter absolute path for --model.
 ```terminal
-python liteSeq2seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --model './models/model_id'
+python liteSeq2Seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --model './models/model_id'
 ```
 
 ### Prediction
 Specify --model to load a existed model, Specify --input for one-line prediction; Specify --loop for continuous prediction.
 ```terminal
-python liteSeq2seq.py --model './models/model_id' --input 'hello there'
-python liteSeq2seq.py --model './models/model_id' --loop
+python liteSeq2Seq.py --model './models/model_id' --input 'hello there'
+python liteSeq2Seq.py --model './models/model_id' --loop
 ```
 
 ### Customize the model for training
 Specify hyperparameters with --hyperparameters. For example, you want to specify beam_width, just add `--beam_width 10`
 ```terminal
-python liteSeq2seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --beam_width 10 --save_every 20 --keep_prob 0.5
+python liteSeq2Seq.py --enc 'path of input_str_file' --dec 'path of output_str_file' --beam_width 10 --save_every 20 --keep_prob 0.5
 ```
 
 ## Tensorboard
