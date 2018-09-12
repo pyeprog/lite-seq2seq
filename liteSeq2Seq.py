@@ -82,6 +82,8 @@ class Seq2seq:
             decay_start_at=8e3,
             n_buckets=50,
             vocab_remain_rate=0.97,
+            bleu_max_order=4,
+            bleu_smooth=True,
             report_every=50,
             show_every=200,
             summary_every=50,
@@ -106,6 +108,8 @@ class Seq2seq:
         @decay_start_at :int, The learning rate begin to decay after training {this} number of steps
         @n_buckets :int, Seperate training sequence into {this} buckets, training sequences in same bucket have similar length
         @vocab_remain_rate :float, Choose a vocab size that can cover {this} percentage of total words
+        @bleu_max_order :int, the max order for n-gram
+        @bleu_smooth :bool, whether use smoothed bleu score. If False, 0.0 would be more frequent in bleu score.
         @report_every :int, Print validation score for every {this} steps
         @show_every :int, Print example of transformation for every {this} steps
         @summary_every :int, Save summery info for tensorboard for every {this} steps
@@ -136,6 +140,10 @@ class Seq2seq:
         self.n_buckets = n_buckets
         self.vocab_remain_rate = vocab_remain_rate
 
+        # Hyper params for bleu score
+        self.bleu_max_order = bleu_max_order
+        self.bleu_smooth = bleu_smooth
+
         # Hyper params for logging
         self.report_every = report_every
         self.show_every = show_every
@@ -160,6 +168,8 @@ class Seq2seq:
             self.decay_start_at, 
             self.n_buckets, 
             self.vocab_remain_rate, 
+            self.bleu_max_order,
+            self.bleu_smooth,
             self.report_every, 
             self.show_every, 
             self.summary_every, 
@@ -846,7 +856,7 @@ class Seq2seq:
                             keep_prob: 1.0
                             })
 
-                        bleu_score = self._bleu(prediction_lists, valid_targets)
+                        bleu_score = self._bleu(prediction_lists, valid_targets, self.bleu_max_order, self.bleu_smooth)
                         print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, self.epoch, g_step, train_loss, val_loss, bleu_score, lr_val))
 
                     if g_step % self.show_every == 0:
@@ -964,6 +974,8 @@ class Seq2seq:
                 self.decay_start_at, 
                 self.n_buckets, 
                 self.vocab_remain_rate, 
+                self.bleu_max_order,
+                self.bleu_smooth,
                 self.report_every, 
                 self.show_every, 
                 self.summary_every, 
@@ -991,7 +1003,7 @@ class TextProcessor:
     def proc3(self, x):
         return re.sub('\{.*?\}', '', x)
     def proc4(self, x):
-        return re.sub('\w+{,1}\w\.*', lambda y:y.group().replace('.',''), x)
+        return re.sub('\w+\.{,1}\w\.+', lambda y:y.group().replace('.',''), x)
     def proc5(self, x):
         return re.sub('[:\-\/\\*&$#@\^]+|\.{2,}', ' ', x)
     def proc6(self, x):
@@ -1129,6 +1141,10 @@ if __name__ == '__main__':
             '--n_buckets', type=int, help='Seperate training sequence into {this} buckets, training sequences in same bucket have similar length, default to 50')
     parser.add_argument(
             '--vocab_remain_rate', type=float, help='Choose a vocab size that can cover {this} percentage of total words, default to 0.97')
+    parser.add_argument(
+            '--bleu_max_order', type=int, help='the max order for n-gram, default to 4')
+    parser.add_argument(
+            '--bleu_smooth', type=int, help='whether use smoothed bleu score. If False, 0.0 would be more frequent in bleu score. default to 1')
     parser.add_argument(
             '--report_every', type=int, help='Report metrics on validation set for every {this} steps, default to 50')
     parser.add_argument(
