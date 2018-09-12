@@ -187,6 +187,8 @@ model = Seq2seq(
     decay_start_at=8e3,
     n_buckets=50,
     vocab_remain_rate=0.97,
+    bleu_max_order=4,
+    bleu_smooth=True,
     report_every=50,
     show_every=200,
     summary_every=50,
@@ -212,6 +214,8 @@ model = Seq2seq(
 | decay_start_at    | int       | The learning rate begin to decay after training {this} number of steps |
 | n_buckets         | int       | Seperate training sequence into {this} buckets, training sequences in same bucket have similar length |
 | vocab_remain_rate | float     | Choose a vocab size that can cover {this} percentage of total words |
+| bleu_max_order    | int       | the max order for n-gram                                     |
+| bleu_smooth       | int       | whether use smoothed bleu score. If False, 0.0 would be more frequent in bleu score |
 | report_every      | int       | Print validation score for every {this} steps                |
 | show_every        | int       | Print example of transformation for every {this} steps       |
 | summary_every     | int       | Save summery info for tensorboard for every {this} steps     |
