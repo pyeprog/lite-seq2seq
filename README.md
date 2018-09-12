@@ -215,7 +215,7 @@ model = Seq2seq(
 | n_buckets         | int       | Seperate training sequence into {this} buckets, training sequences in same bucket have similar length |
 | vocab_remain_rate | float     | Choose a vocab size that can cover {this} percentage of total words |
 | bleu_max_order    | int       | the max order for n-gram                                     |
-| bleu_smooth       | int       | whether use smoothed bleu score. If False, 0.0 would be more frequent in bleu score |
+| bleu_smooth       | int       | whether use smoothed bleu score. 1=use, 0=not use. If 0, 0.0 would be more frequent in bleu score |
 | report_every      | int       | Print validation score for every {this} steps                |
 | show_every        | int       | Print example of transformation for every {this} steps       |
 | summary_every     | int       | Save summery info for tensorboard for every {this} steps     |
