@@ -235,7 +235,7 @@ Thank wb14123 for the couplet dataset, https://github.com/wb14123/couplet-datase
 
 size of training set: 700,000
 
-numbre of training epochs: 10
+number of training epochs: 10
 
 training batch size: 128
 
