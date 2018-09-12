@@ -223,12 +223,22 @@ python liteSeq2Seq.py --enc 'path of input_str_file' --dec 'path of output_str_f
 ## Tensorboard
 Tensorboard is available and information is gathered for every {summary_every} steps. Summary info of each model is saved beside its checkpoint file.
 You can simply launch tensorboard sever in terminal. Specify --logdir with the path you save your models in.
+
 ```terminal
 tensorboard --logdir .models/
 ```
 
 ## Evaluation
-### training result 
+#### The result of training on the couplet dataset using lite-seq2seq core
+
+Thank wb14123 for the couplet dataset, https://github.com/wb14123/couplet-dataset
+
+size of training set: 700,000
+
+number of training epochs: 10
+
+training batch size: 128
+
 ![couplet](./doc/couplet_result.png)
 
 > Authors: Weilong Liao, Yimo Wang
