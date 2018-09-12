@@ -229,16 +229,22 @@ tensorboard --logdir .models/
 ```
 
 ## Evaluation
-#### The result of training on the couplet dataset using lite-seq2seq core
-
-Thank wb14123 for the couplet dataset, https://github.com/wb14123/couplet-dataset
-
-size of training set: 700,000
-
-number of training epochs: 10
-
-training batch size: 128
+#### The result of training on couplet dataset
+Thank wb14123 for the [couplet dataset](https://github.com/wb14123/couplet-dataset)
+- Size of the training set: 700,000
+- Number of training epochs: 10
+- Training batch size: 128
+- Vocab_remain_rate: 1.0 (all Chinese character is used)
 
 ![couplet](./doc/couplet_result.png)
+
+#### The result of training on English to Vietnamese dataset
+The dataset comes from IWSLT. You can download them directly using script from [tensorflow/nmt](https://github.com/tensorflow/nmt/tree/master/nmt/scripts) project on github.
+- Size of the training set: 130,000
+- Number of training epochs: 10
+- Training batch size: 64
+- vocab_remain_rate: 0.97
+
+![en-vi](./doc/en_vi_result.png)
 
 > Authors: Weilong Liao, Yimo Wang
