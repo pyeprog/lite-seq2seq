@@ -3,6 +3,30 @@
 This project is aimed at creating a super easy way to put a modern seq2seq model in use. We want to keep it simple, handy with sufficient ability to fitting complex sequence transformation process.
 The default model equips with bucket, attention mechanism, stack bidirectional encoder and beam search. Experiment on some test translation dataset indicates that the fitting ability of our default model is much better than that of vanilla seq2seq.
 
+1. [Prerequisite](https://github.com/pyeprog/lite-seq2seq#prerequisite)
+2. [Features](https://github.com/pyeprog/lite-seq2seq#features)
+3. [Data format](https://github.com/pyeprog/lite-seq2seq#data-format)
+  3.1. [Data format example](https://github.com/pyeprog/lite-seq2seq#data-format-example)
+4. [Text process](https://github.com/pyeprog/lite-seq2seq#text-process)
+  4.1. [Basic usage](https://github.com/pyeprog/lite-seq2seq#basic-usage)
+  4.2. [Customize subprocess](https://github.com/pyeprog/lite-seq2seq#customize-subprocess)
+  4.3. [Other usages](https://github.com/pyeprog/lite-seq2seq#other-usages)
+5. [Use Seq2seq in your code](https://github.com/pyeprog/lite-seq2seq#use-seq2seq-in-your-code)
+  5.1. [Basic usage](https://github.com/pyeprog/lite-seq2seq#basic-usage-1)
+	5.2. [Load model for prediction](https://github.com/pyeprog/lite-seq2seq#load-model-for-prediction)
+	5.3. [Load existed model and continue training](https://github.com/pyeprog/lite-seq2seq#load-existed-model-and-continue-training)
+	5.4. [Change the hyperparameters](https://github.com/pyeprog/lite-seq2seq#change-the-hyperparameters)
+6. [Use Seq2seq via CLI](https://github.com/pyeprog/lite-seq2seq#use-seq2seq-via-cli)
+	6.1. [Start training](https://github.com/pyeprog/lite-seq2seq#start-training)
+	6.2. [Continue training](https://github.com/pyeprog/lite-seq2seq#continue-training)
+	6.3. [Prediction](https://github.com/pyeprog/lite-seq2seq#prediction)
+	6.4. [Customize the model for training](https://github.com/pyeprog/lite-seq2seq#customize-the-model-for-training)
+7. [Tensorboard](https://github.com/pyeprog/lite-seq2seq#tensorboard)
+8. [Evaluation](https://github.com/pyeprog/lite-seq2seq#evaluation)
+	8.1 [couplet](https://github.com/pyeprog/lite-seq2seq#the-result-of-training-on-couplet-dataset)
+	8.2 [English to Vietnamese](https://github.com/pyeprog/lite-seq2seq#the-result-of-training-on-english-to-vietnamese-dataset)
+
+
 ## Prerequisite
 - Only Tensorflow (>1.4)
 
@@ -229,7 +253,7 @@ tensorboard --logdir .models/
 ```
 
 ## Evaluation
-#### The result of training on couplet dataset
+### The result of training on couplet dataset
 Thank wb14123 for the [couplet dataset](https://github.com/wb14123/couplet-dataset)
 - Size of the training set: 700,000
 - Number of training epochs: 10
@@ -238,7 +262,10 @@ Thank wb14123 for the [couplet dataset](https://github.com/wb14123/couplet-datas
 
 ![couplet](./doc/couplet_result.png)
 
-#### The result of training on English to Vietnamese dataset
+---
+
+### The result of training on English to Vietnamese dataset
+
 The dataset comes from IWSLT. You can download them directly using script from [tensorflow/nmt](https://github.com/tensorflow/nmt/tree/master/nmt/scripts) project on github.
 - Size of the training set: 130,000
 - Number of training epochs: 10
