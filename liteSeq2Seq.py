@@ -1196,26 +1196,3 @@ if __name__ == '__main__':
     elif not all([args.enc, args.dec]) and any([args.enc, args.dec]):
         raise ValueError('You should specify both enc and dec file path')
 
-    # model = Seq2seq()
-
-    # encode_file_path = './data/movie_dialogs/enc'
-    # decode_file_path = './data/movie_dialogs/dec'
-
-    # tp = TextProcessor()
-    # tp.read(encode_file_path).process(inplace=True)
-    # tp.read(decode_file_path).process(inplace=True)
-
-    # # # model.load('./models/chat')
-    # model.train(encode_file_path, decode_file_path, './models/very_dull')
-    # while True:
-    #     encode_str = input('< ')
-    #     print('>> {}'.format(model.predict(encode_str)))
-
-    # file1_path = '/Users/pd/Downloads/europarl-v7.fr-en.en'
-    # file2_path = '/Users/pd/Downloads/europarl-v7.fr-en.fr'
-
-    # tp = TextProcessor()
-    # new_lines = tp.read(file1_path).process()
-    # print(new_lines)
-    # # tp.read(file2_path).process()
-
