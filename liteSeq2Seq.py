@@ -1055,7 +1055,8 @@ class TextProcessor:
                 print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
             for fn in proc_fn_list:
                 line = fn(line)
-            line += '\n' if line[-1] != '\n' else ''
+            if len(line) > 0:
+                line += '\n' if line[-1] != '\n' else ''
             new_lines.append(line)
 
         print()
