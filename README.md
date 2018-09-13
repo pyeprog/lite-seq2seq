@@ -1,5 +1,7 @@
 # lite-seq2seq - a super light weight seq2seq core
 
+![talk](doc/talk.gif)
+
 This project is aimed at creating a super easy way to put a modern seq2seq model in use. We want to keep it simple, handy with sufficient ability to fitting complex sequence transformation process.
 The default model equips with bucket, attention mechanism, stack bidirectional encoder and beam search. Experiment on some test translation dataset indicates that the fitting ability of our default model is much better than that of vanilla seq2seq.
 
@@ -168,7 +170,8 @@ model.train('other_input_str_file', 'other_target_str_file', './models/<pre_trai
 
 ### Change the hyperparameters
 ```python
-# Hyperparameters
+# Default Hyperparameters are shown below
+# You can specify them with your own idea
 model = Seq2seq(
     embedding_dim=512,
     rnn_layer_size=1024,
@@ -187,6 +190,8 @@ model = Seq2seq(
     decay_start_at=8e3,
     n_buckets=50,
     vocab_remain_rate=0.97,
+    input_seq_min_len=3,
+    input_seq_max_len=float('inf'),
     bleu_max_order=4,
     bleu_smooth=True,
     report_every=50,
@@ -214,6 +219,8 @@ model = Seq2seq(
 | decay_start_at    | int       | The learning rate begin to decay after training {this} number of steps |
 | n_buckets         | int       | Seperate training sequence into {this} buckets, training sequences in same bucket have similar length |
 | vocab_remain_rate | float     | Choose a vocab size that can cover {this} percentage of total words |
+| input_seq_min_len | int       | Minimum length of sequence that used for training            |
+| input_seq_max_len | int       | Maximum length of sequence that used for training            |
 | bleu_max_order    | int       | the max order for n-gram                                     |
 | bleu_smooth       | int       | whether use smoothed bleu score. 1=use, 0=not use. If 0, 0.0 would be more frequent in bleu score |
 | report_every      | int       | Print validation score for every {this} steps                |
@@ -277,5 +284,33 @@ The dataset comes from IWSLT. You can download them directly using script from [
 - vocab_remain_rate: 0.97
 
 ![en-vi](./doc/en_vi_result.png)
+
+---
+
+### The result of training on Cornell Movie Dialog dataset
+
+You can download dataset [here](https://www.cs.cornell.edu/~cristian/Cornell_Movie-Dialogs_Corpus.html).
+
+- Number of training epochs: 10
+- Training batch size: 64
+- vocab_remain_rate: 0.97
+
+I've noticed that if you just go with all the sentences in the dataset, your model will learn to response your every questions with simple answers, such as `what`, `yes`, `no`, etc.
+
+So the simplest way to eliminate that case is to remove those short answer. So what I have done is to two one tag --input_seq_min_len, when I launch the training program.
+
+```terminal
+python liteSeq2Seq.py --enc data/movie_dialogs/enc --dec data/movie_dialogs/dec --input_seq_min_len 5
+```
+
+**Though** the model may still fail and collapse on some fixed answer, like `I don't know what you talking about` or `I don't know I don't know`. More study are waiting to be done here. 
+
+![talk](doc/talk.gif)
+
+
+
+
+
+
 
 > Authors: Weilong Liao, Yimo Wang
