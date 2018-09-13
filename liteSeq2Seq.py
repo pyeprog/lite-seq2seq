@@ -385,7 +385,7 @@ class Seq2seq:
         cur_count = 0
         for i, (word, count) in enumerate(word_count.most_common()):
             cur_count += count
-            if cur_count / n_words < self.vocab_remain_rate:
+            if cur_count / n_words <= self.vocab_remain_rate:
                 vocabs.append(word)
             else: break
             print('\rFilter vocabs {}/{} = {}'.format(i+1, n_words, cur_count/n_words), end='', flush=True)
