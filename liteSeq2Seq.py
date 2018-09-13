@@ -82,6 +82,8 @@ class Seq2seq:
             decay_start_at=8e3,
             n_buckets=50,
             vocab_remain_rate=0.97,
+            input_seq_min_len=0,
+            input_seq_max_len=float('inf'),
             bleu_max_order=4,
             bleu_smooth=True,
             report_every=50,
@@ -108,6 +110,8 @@ class Seq2seq:
         @decay_start_at :int, The learning rate begin to decay after training {this} number of steps
         @n_buckets :int, Seperate training sequence into {this} buckets, training sequences in same bucket have similar length
         @vocab_remain_rate :float, Choose a vocab size that can cover {this} percentage of total words
+        @input_seq_min_len: int, Minimum length of sequence that used for training
+        @input_seq_max_len: int, Maximum length of sequence that used for training
         @bleu_max_order :int, the max order for n-gram
         @bleu_smooth :bool, whether use smoothed bleu score. If False, 0.0 would be more frequent in bleu score.
         @report_every :int, Print validation score for every {this} steps
@@ -139,6 +143,8 @@ class Seq2seq:
         # Hyper params for data processing
         self.n_buckets = n_buckets
         self.vocab_remain_rate = vocab_remain_rate
+        self.input_seq_min_len = input_seq_min_len
+        self.input_seq_max_len = input_seq_max_len
 
         # Hyper params for bleu score
         self.bleu_max_order = bleu_max_order
@@ -168,6 +174,8 @@ class Seq2seq:
             self.decay_start_at, 
             self.n_buckets, 
             self.vocab_remain_rate, 
+            self.input_seq_min_len,
+            self.input_seq_max_len,
             self.bleu_max_order,
             self.bleu_smooth,
             self.report_every, 
@@ -418,22 +426,27 @@ class Seq2seq:
             if i % 100 == 0 or i + 1 == n_lines:
                 print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
 
+            encode_line_split = encode_line.lower().split()
+            if not (self.input_seq_min_len <= len(encode_line_split) <= self.input_seq_max_len):
+                continue
             cur_encode_line = []
             cur_encode_n_unk = 0
-            for word in encode_line.lower().split():
+            for word in encode_line_split:
                 if word not in encoder_vocab_to_int:
                     cur_encode_n_unk += 1
                 cur_encode_line.append(encoder_vocab_to_int.get(word, encode_unk_id))
 
+            decode_line_split = decode_line.lower().split()
+            if not (self.input_seq_min_len <= len(decode_line_split) <= self.input_seq_max_len):
+                continue
             cur_decode_line = []
             cur_decode_n_unk = 0
-            for word in decode_line.lower().split():
+            for word in decode_line_split:
                 if word not in decoder_vocab_to_int:
                     cur_decode_n_unk += 1
                 cur_decode_line.append(decoder_vocab_to_int.get(word, decode_unk_id))
 
-            if len(cur_encode_line) > 0 and cur_encode_n_unk / len(cur_encode_line) < 0.2 and \
-                    len(cur_decode_line) > 0 and cur_decode_n_unk / len(cur_decode_line) < 0.2:
+            if cur_encode_n_unk / len(cur_encode_line) < 0.2 and cur_decode_n_unk / len(cur_decode_line) < 0.2:
                 parsed_encode_lines.append(cur_encode_line)
                 parsed_decode_lines.append(cur_decode_line)
 
@@ -974,6 +987,8 @@ class Seq2seq:
                 self.decay_start_at, 
                 self.n_buckets, 
                 self.vocab_remain_rate, 
+                self.input_seq_min_len,
+                self.input_seq_max_len,
                 self.bleu_max_order,
                 self.bleu_smooth,
                 self.report_every, 
@@ -1141,6 +1156,10 @@ if __name__ == '__main__':
             '--n_buckets', type=int, help='Seperate training sequence into {this} buckets, training sequences in same bucket have similar length, default to 50')
     parser.add_argument(
             '--vocab_remain_rate', type=float, help='Choose a vocab size that can cover {this} percentage of total words, default to 0.97')
+    parser.add_argument(
+            '--input_seq_min_len', type=int, help='Minimum length of sequence that used for training, default to 0')
+    parser.add_argument(
+            '--input_seq_max_len', type=int, help='Maximum length of sequence that used for training, default to infinity')
     parser.add_argument(
             '--bleu_max_order', type=int, help='the max order for n-gram, default to 4')
     parser.add_argument(
