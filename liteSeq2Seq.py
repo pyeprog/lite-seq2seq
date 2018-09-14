@@ -331,9 +331,7 @@ class Seq2seq:
                     precisions[i] = 0.0
 
         if min(precisions) > 0:
-            # Tensorflow nmt group use this
-            ## p_log_sum = sum((1. / max_order) * np.log(p) for p in precisions)
-            p_log_sum = sum((1. / max_order) * p for p in precisions)
+            p_log_sum = sum((1. / max_order) * np.log(p) for p in precisions)
             geo_mean = np.exp(p_log_sum)
         else:
             geo_mean = 0.0

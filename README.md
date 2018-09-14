@@ -275,7 +275,7 @@ tensorboard --logdir .models/
 ```
 
 ## Evaluation
-### The result of training on couplet dataset
+### Making Couplet - The result of training on couplet dataset
 Thank wb14123 for the [couplet dataset](https://github.com/wb14123/couplet-dataset)
 - Size of the training set: 700,000
 - Number of training epochs: 10
@@ -286,7 +286,7 @@ Thank wb14123 for the [couplet dataset](https://github.com/wb14123/couplet-datas
 
 ---
 
-### The result of training on English to Vietnamese dataset
+### Machine Translation - The result of training on English to Vietnamese dataset
 
 The dataset comes from IWSLT. You can download them directly using script from [tensorflow/nmt](https://github.com/tensorflow/nmt/tree/master/nmt/scripts) project on github.
 - Size of the training set: 130,000
@@ -298,7 +298,7 @@ The dataset comes from IWSLT. You can download them directly using script from [
 
 ---
 
-### The result of training on Cornell Movie Dialog dataset
+### Chatbot - The result of training on Cornell Movie Dialog dataset
 
 You can download dataset [here](https://www.cs.cornell.edu/~cristian/Cornell_Movie-Dialogs_Corpus.html).
 
@@ -318,7 +318,11 @@ python liteSeq2Seq.py --enc data/movie_dialogs/enc --dec data/movie_dialogs/dec 
 
 ![talk](doc/talk.gif)
 
+---
 
+### Summary system - The result of training on NewsIR’16 dataset
+
+You can download dataset [here](http://research.signalmedia.co/newsir16/signal-dataset.html). It takes you some info to get an email holding the dataset url.
 
 
 
