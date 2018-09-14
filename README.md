@@ -17,6 +17,7 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
   * [Basic usage](#basic-usage-1)
   * [Load model for prediction](#load-model-for-prediction)
   * [Load existed model and continue training](#load-existed-model-and-continue-training)
+  * [Set your own model saving path](#set-your-own-model-saving-path)
   * [Change the hyperparameters](#change-the-hyperparameters)
 - [Use Seq2seq via CLI](#use-seq2seq-via-cli)
   * [Start training](#start-training)
@@ -168,6 +169,14 @@ prediction_str = model.predict(encode_str)
 ```python
 model = Seq2seq()
 model.train('other_input_str_file', 'other_target_str_file', './models/<pre_trained_model_id>')
+```
+
+### Set your own model saving path
+You can set the model's saving path before you create any model instance.
+```python
+from liteSeq2Seq import Seq2seq
+Seq2seq.set_model_dir('<your own specified directory>')
+# All the model will be saved at own specified directory
 ```
 
 ### Change the hyperparameters
