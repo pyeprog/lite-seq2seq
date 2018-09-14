@@ -34,11 +34,13 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
 
 ## Features
 - Single file module,which means only liteSeq2Seq.py is necessary. Super easy to bring its power to other projects.
-- Only 1 dependency -- tensorflow. It's safe to be stable version(>1.4). Version earlier than that has not been tested.
 - Super simple API. You can remember them in seconds, `train` and `predict`.
+- Only 1 dependency -- tensorflow. It's safe to be stable version(>1.4). Version earlier than that has not been tested.
 - Flexibility remains. You can tune the model as much as you want. Nearly all parameters are configurable.
-- An CLI app inside, which means you can play with it as soon as you get tensorflow installed.
-- Nice ability to fit complex sequence transformation such as translation, chat or create couplet if you please.
+- All info are organized and saved automatically. Your model's checkpoint file, hyperparameters, summary data for tensorboard, you can find them all with your model's id.
+- Easy to reload. What to stop training, change learning rate and restart it? Just give your model's id to `train` method or CLI and you are all set.
+- An CLI app inside, which means you can play with it as soon as you get tensorflow installed, no extra python script needed.
+- Nice ability to fit complex sequence transformation such as translation, making summary, chat or create couplet if you please.
 
 ## Data Format
 Unfortunately, our model can only parse data in special format. Not so special actually :)
@@ -297,13 +299,13 @@ You can download dataset [here](https://www.cs.cornell.edu/~cristian/Cornell_Mov
 
 I've noticed that if you just go with all the sentences in the dataset, your model will learn to response your every questions with simple answers, such as `what`, `yes`, `no`, etc.
 
-So the simplest way to eliminate that case is to remove those short answer. So what I have done is to two one tag --input_seq_min_len, when I launch the training program.
+So the simplest way to eliminate that case is to remove those short answer. So what I have done is to add one tag --input_seq_min_len, when I launch the training program.
 
 ```terminal
 python liteSeq2Seq.py --enc data/movie_dialogs/enc --dec data/movie_dialogs/dec --input_seq_min_len 5
 ```
 
-**Though** the model may still fail and collapse on some fixed answer, like `I don't know what you talking about` or `I don't know I don't know`. More study are waiting to be done here. 
+**Though** the model may still fail and collapse on some fixed answer, like `I don't know what you talking about` or `I don't know I don't know`. More work needs to be done here.
 
 ![talk](doc/talk.gif)
 
