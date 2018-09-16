@@ -26,9 +26,10 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
   * [Customize the model for training](#customize-the-model-for-training)
 - [Tensorboard](#tensorboard)
 - [Evaluation](https://github.com/pyeprog/lite-seq2seq#evaluation)
-  * [couplet](#the-result-of-training-on-couplet-dataset)
-  * [English to Vietnamese](#the-result-of-training-on-english-to-vietnamese-dataset)
-
+  * [couplet](#making-couplet---the-result-of-training-on-couplet-dataset<Paste>)
+  * [English to Vietnamese](#machine-translation---the-result-of-training-on-english-to-vietnamese-dataset)
+  * [Chatbot](#chatbot---the-result-of-training-on-cornell-movie-dialog-dataset)
+  * [Summary system](#summary-system---the-result-of-training-on-newsir’16-dataset)
 
 ## Prerequisite
 - Only Tensorflow (>1.4)
