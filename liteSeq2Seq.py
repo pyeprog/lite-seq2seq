@@ -1058,6 +1058,7 @@ class TextProcessor:
 
         return self
 
+
     def append(self, proc_fn):
         '''
         Append subprocessing method to default method stack.
@@ -1065,6 +1066,7 @@ class TextProcessor:
         @return: None
         '''
         self.proc_fn_list.append(proc_fn)
+
 
     def process(self, proc_fn_list=[], inplace=False, overwrite=False):
         '''
@@ -1077,30 +1079,33 @@ class TextProcessor:
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
 
-        new_lines = []
+        filedir = os.path.dirname(self.file_path)
+        filename = os.path.basename(self.file_path)
+        origin_filepath = os.path.join(filedir, filename+'.origin') 
+        os.rename(self.file_path, origin_filepath)
+        if overwrite:
+            os.remove(origin_filepath)
+
         n_lines = len(self.lines)
+        new_lines = []
         for i, line in enumerate(self.lines):
-            if i % 1000 == 0 or i == n_lines - 1: 
+            if i % 1000 == 0 or i == n_lines - 1:
                 print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
             for fn in proc_fn_list:
                 line = fn(line)
             line += '\n' if len(line)==0 or line[-1] != '\n' else ''
             new_lines.append(line)
 
-        print()
-        new_content = ''.join(new_lines)
+            if inplace and ((i % 100000 == 0 and i > 0) or i == n_lines-1):
+                with open(self.file_path, 'a') as fp:
+                    fp.write(''.join(new_lines))
+                    new_lines = []
 
-        if not inplace:
-            return new_lines
+            if not inplace:
+                return new_lines
 
-        else:
-            filedir = os.path.dirname(self.file_path)
-            filename = os.path.basename(self.file_path)
-            if not overwrite:
-                os.rename(self.file_path, os.path.join(filedir, filename+'.origin'))
-            with open(self.file_path, 'w') as fp:
-                fp.write(new_content)
             return self.file_path
+
 
     def process_str(self, string, proc_fn_list=[]):
         '''

@@ -29,7 +29,7 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
   * [couplet](#making-couplet---the-result-of-training-on-couplet-dataset<Paste>)
   * [English to Vietnamese](#machine-translation---the-result-of-training-on-english-to-vietnamese-dataset)
   * [Chatbot](#chatbot---the-result-of-training-on-cornell-movie-dialog-dataset)
-  * [Summary system](#summary-system---the-result-of-training-on-newsir’16-dataset)
+  * [Summary system](#summary-system---the-result-of-training-on-newsir16-dataset)
 
 ## Prerequisite
 - Only Tensorflow (>1.4)
