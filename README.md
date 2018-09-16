@@ -18,9 +18,11 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
   * [Load model for prediction](#load-model-for-prediction)
   * [Load existed model and continue training](#load-existed-model-and-continue-training)
   * [Set your own model saving path](#set-your-own-model-saving-path)
+  * [Use multiple files for training](#use-multiple-files-for-training)
   * [Change the hyperparameters](#change-the-hyperparameters)
 - [Use Seq2seq via CLI](#use-seq2seq-via-cli)
   * [Start training](#start-training)
+  * [Train model with multiple files](#train-model-with-multiple-files)
   * [Continue training](#continue-training)
   * [Prediction](#prediction)
   * [Customize the model for training](#customize-the-model-for-training)
@@ -43,6 +45,7 @@ The default model equips with bucket, attention mechanism, stack bidirectional e
 - Easy to reload. What to stop training, change learning rate and restart it? Just give your model's id to `train` method or CLI and you are all set.
 - An CLI app inside, which means you can play with it as soon as you get tensorflow installed, no extra python script needed.
 - Nice ability to fit complex sequence transformation such as translation, making summary, chat or create couplet if you please.
+- Ability to handle huge dataset.
 
 ## Data Format
 Unfortunately, our model can only parse data in special format. Not so special actually :)
@@ -75,7 +78,7 @@ As mentioned earlier, there is a simple text processor called TextProcessor insi
 ```python
 # Basic usage: 
 # read from file, process each line and save the processed text in the same 'file_path'
-# The origin file will be renamed 'file_path.origin'
+# The origin file will be renamed 'origin_<file_path>'
 tp = TextProcessor()
 tp.read(file_path).process(inplace=True)
 ```
@@ -114,7 +117,7 @@ tp.read(file2_path).process(proc_fn_list=[proc1, proc2], inplace=True)
 ```python
 tp = TextProcessor()
 
-# Overwrite the processed content into origin file, thus no file_path.origin will not be generated 
+# Overwrite the processed content into origin file, thus no origin__<file_path> will not be generated 
 tp.read(file_path).process(inplace=True, overwrite=True)
 
 # If you want to get the processed content instead of writing content into file, you can do
@@ -178,6 +181,19 @@ You can set the model's saving path before you create any model instance.
 from liteSeq2Seq import Seq2seq
 Seq2seq.set_model_dir('<your own specified directory>')
 # All the model will be saved at own specified directory
+```
+
+### Use multiple files for training.
+When the dataset is too large, you can load them all at once for text processing and training. 
+Then you probably gonna seperate the whole dataset into several smaller files, and train the model on each of them. Our Seq2seq module provides an easy way to handle this situation.
+The train method is still the one evolved. All you need to do is to give train method two lists of file paths, one for encoder and the other for decoder.
+```python
+model = Seq2seq()
+files_for_encoder = ['file1_path', 'file2_path']
+files_for_decoder = ['file3_path', 'file4_path']
+model.train(files_for_encoder,files_for_decoder) #replace single string to a list of strings
+encode_str = input()
+prediction_str = model.predict(encode_str)
 ```
 
 ### Change the hyperparameters
@@ -246,6 +262,14 @@ In terminal you can enter `python liteSeq2Seq.py -h` or `python liteSeq2Seq.py -
 If you specify --enc, --dec, you will start to train a new model
 ```terminal
 python liteSeq2Seq.py --enc 'path of input_str_file' --dec 'path of output_str_file'
+```
+
+### Train model with multiple files
+If you seperate big file into several small ones, it's intuitive to name them file1, file2, file3.. with most of the characters staying the same and digits suffix for identification.
+Use * in terminal to represent the digit part of the name, thus you can do it in this way. E.g. encode_file_* will match encode_file_1, encode_file_2, .. encode_file_x.
+Please keep in mind that, the number of files for both encoder and decoder should be equal. And each corresponding pair of files for should have same number of lines.
+```terminal
+python liteSeq2Seq.py --enc encode_file_* --dec decode_file_*
 ```
 
 ### Continue training

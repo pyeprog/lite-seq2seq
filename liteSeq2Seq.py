@@ -393,27 +393,34 @@ class Seq2seq:
                 break
 
     
-    def _parse_dict(self, file_path):
+    def _parse_dict(self, file_paths):
         '''
         Given text file, return the vocab_to_int and int_to_vocab dictionary. The vocab size is effected by 'vocab_remain_rate' 
-        @file_path: str, the file path of text dataset
+        @file_paths: str or list/tuple, the file path or a list of paths of text dataset file(s)
         @return: (dict, dict), return a tuple of (int_to_vocab, vocab_to_int)
         '''
-        with open(file_path, 'r') as fp:
-            lines = fp.readlines()
+        assert isinstance(file_paths, (str, list, tuple)), 'file path(s) of dataset given to parse dict should be instance of str, list or tuple'
+        
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
 
-        word_count = Counter()
         vocabs = ['<PAD>', '<UNK>', '<GO>', '<EOS>']
-        n_lines = len(lines)
+        word_count = Counter()
         n_words = 0
 
-        for i, line in enumerate(lines):
-            if i % 100 == 0 or i + 1 == n_lines:
-                print('\rParsing dictionary {}/{}'.format(i+1, n_lines), end='', flush=True)
-            
-            for word in line.lower().split():
-                word_count[word] += 1
-                n_words += 1
+        for fi, file_path in enumerate(file_paths):
+            with open(file_path, 'r') as fp:
+                lines = fp.readlines()
+
+            n_lines = len(lines)
+
+            for i, line in enumerate(lines):
+                if i % 100 == 0 or i + 1 == n_lines:
+                    print('\rParsing dictionary {}/{} from file #{}'.format(i+1, n_lines, fi+1), end='', flush=True)
+                
+                for word in line.lower().split():
+                    word_count[word] += 1
+                    n_words += 1
 
         print('\tFinished')
 
@@ -432,87 +439,98 @@ class Seq2seq:
         return int_to_vocab, vocab_to_int
 
 
-    def _parse_seq(self, encode_file_path, decode_file_path, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
+    def _parse_seq(self, encode_file_paths, decode_file_paths, encoder_vocab_to_int, decoder_vocab_to_int, n_buckets=0):
         '''
         Parse both files for encoding and decoding, given number of buckets and their vocab_to_int dictionary.
-        @encode_file_path: str, the file path for encoding
-        @decode_file_path: str, the file path for decoding
+        @encode_file_path: str or list/tuple, the file path or a list of paths for encoding file(s)
+        @decode_file_path: str or list/tuple, the file path or a list of paths for decoding file(s)
         @encodr_vocab_to_int: dict, the vocab_to_int dictionary for encoding
         @decodr_vocab_to_int: dict, the vocab_to_int dictionary for decoding
         @n_buckets: int, the number of bucket for rearranging order of sequences, that lengths of sequences in the same bucket is as close as possible.
-        @return: (list, list), return a tuple of two lists, (encode_seqs, decode_seqs), each of them is a list of tokenized words list.
+        @return: generator, each iter returns a tuple of two lists (encode_seqs, decode_seqs), each of them is a list of tokenized words list.
         '''
-        with open(encode_file_path, 'r') as fp:
-            encode_lines = fp.readlines()
-        with open(decode_file_path, 'r') as fp:
-            decode_lines = fp.readlines()
+        assert isinstance(encode_file_paths, (str, list, tuple)), 'Encode file path(s) of dataset given to parse sequence should be instance of str, list or tuple'
+        assert isinstance(decode_file_paths, (str, list, tuple)), 'Decode file path(s) of dataset given to parse sequence should be instance of str, list or tuple'
 
-        assert len(encode_lines) == len(decode_lines), 'encode file and decode file should have same number of lines'
+        if isinstance(encode_file_paths, str): 
+            encode_file_paths = [encode_file_paths]
+        if isinstance(decode_file_paths, str): 
+            decode_file_paths = [decode_file_paths]
 
-        encode_unk_id = encoder_vocab_to_int['<UNK>']
-        decode_unk_id = decoder_vocab_to_int['<UNK>']
+        assert len(encode_file_paths) == len(decode_file_paths), 'Number of encode files and decode files should be equal'
 
-        n_lines = len(encode_lines)
+        for encode_file_path, decode_file_path in zip(encode_file_paths, decode_file_paths):
+            with open(encode_file_path, 'r') as fp:
+                encode_lines = fp.readlines()
+            with open(decode_file_path, 'r') as fp:
+                decode_lines = fp.readlines()
 
-        parsed_encode_lines = []
-        parsed_decode_lines = []
+            assert len(encode_lines) == len(decode_lines), 'encode file and decode file should have same number of lines'
 
-        for i, (encode_line, decode_line) in enumerate(zip(encode_lines, decode_lines)):
-            if i % 100 == 0 or i + 1 == n_lines:
-                print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
+            encode_unk_id = encoder_vocab_to_int['<UNK>']
+            decode_unk_id = decoder_vocab_to_int['<UNK>']
 
-            encode_line_split = encode_line.lower().split()
-            if not (self.hyparams.input_seq_min_len <= len(encode_line_split) <= self.hyparams.input_seq_max_len):
-                continue
-            cur_encode_line = []
-            cur_encode_n_unk = 0
-            for word in encode_line_split:
-                if word not in encoder_vocab_to_int:
-                    cur_encode_n_unk += 1
-                cur_encode_line.append(encoder_vocab_to_int.get(word, encode_unk_id))
+            n_lines = len(encode_lines)
 
-            decode_line_split = decode_line.lower().split()
-            if not (self.hyparams.input_seq_min_len <= len(decode_line_split) <= self.hyparams.input_seq_max_len):
-                continue
-            cur_decode_line = []
-            cur_decode_n_unk = 0
-            for word in decode_line_split:
-                if word not in decoder_vocab_to_int:
-                    cur_decode_n_unk += 1
-                cur_decode_line.append(decoder_vocab_to_int.get(word, decode_unk_id))
+            parsed_encode_lines = []
+            parsed_decode_lines = []
 
-            if len(cur_encode_line) > 0 and len(cur_decode_line) > 0 and \
-                    cur_encode_n_unk / len(cur_encode_line) < 0.2 and cur_decode_n_unk / len(cur_decode_line) < 0.2:
-                parsed_encode_lines.append(cur_encode_line)
-                parsed_decode_lines.append(cur_decode_line)
+            for i, (encode_line, decode_line) in enumerate(zip(encode_lines, decode_lines)):
+                if i % 100 == 0 or i + 1 == n_lines:
+                    print('\rParsing sequence {}/{}'.format(i+1, n_lines), end='', flush=True)
+
+                encode_line_split = encode_line.lower().split()
+                if not (self.hyparams.input_seq_min_len <= len(encode_line_split) <= self.hyparams.input_seq_max_len):
+                    continue
+                cur_encode_line = []
+                cur_encode_n_unk = 0
+                for word in encode_line_split:
+                    if word not in encoder_vocab_to_int:
+                        cur_encode_n_unk += 1
+                    cur_encode_line.append(encoder_vocab_to_int.get(word, encode_unk_id))
+
+                decode_line_split = decode_line.lower().split()
+                if not (self.hyparams.input_seq_min_len <= len(decode_line_split) <= self.hyparams.input_seq_max_len):
+                    continue
+                cur_decode_line = []
+                cur_decode_n_unk = 0
+                for word in decode_line_split:
+                    if word not in decoder_vocab_to_int:
+                        cur_decode_n_unk += 1
+                    cur_decode_line.append(decoder_vocab_to_int.get(word, decode_unk_id))
+
+                if len(cur_encode_line) > 0 and len(cur_decode_line) > 0 and \
+                        cur_encode_n_unk / len(cur_encode_line) < 0.2 and cur_decode_n_unk / len(cur_decode_line) < 0.2:
+                    parsed_encode_lines.append(cur_encode_line)
+                    parsed_decode_lines.append(cur_decode_line)
 
 
-        if n_buckets > 1:
-            print('\tBucketizing...', end='')
-            encode_line_lens = [*map(len, parsed_encode_lines)]
-            decode_line_lens = [*map(len, parsed_decode_lines)]
+            if n_buckets > 1:
+                print('\tBucketizing...', end='')
+                encode_line_lens = [*map(len, parsed_encode_lines)]
+                decode_line_lens = [*map(len, parsed_decode_lines)]
 
-            max_encode_len = max(encode_line_lens)
-            max_decode_len = max(decode_line_lens)
+                max_encode_len = max(encode_line_lens)
+                max_decode_len = max(decode_line_lens)
 
-            lens_tuple = [(max(enc_len, dec_len), i) for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens))] 
-            bucket_width = (max_encode_len + n_buckets - 1) // n_buckets 
-            buckets = {}
-            for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens)):
-                b_id = max(enc_len, dec_len) // bucket_width
-                buckets[b_id] = buckets.get(b_id, set())
-                buckets[b_id].add(i)
+                lens_tuple = [(max(enc_len, dec_len), i) for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens))] 
+                bucket_width = (max_encode_len + n_buckets - 1) // n_buckets 
+                buckets = {}
+                for i, (enc_len, dec_len) in enumerate(zip(encode_line_lens, decode_line_lens)):
+                    b_id = max(enc_len, dec_len) // bucket_width
+                    buckets[b_id] = buckets.get(b_id, set())
+                    buckets[b_id].add(i)
 
-            decode_idxs = []
-            for b_id in sorted(buckets.keys()):
-                decode_idxs.extend(list(buckets[b_id]))
+                decode_idxs = []
+                for b_id in sorted(buckets.keys()):
+                    decode_idxs.extend(list(buckets[b_id]))
 
-            parsed_encode_lines = [parsed_encode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
-            parsed_decode_lines = [parsed_decode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
+                parsed_encode_lines = [parsed_encode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
+                parsed_decode_lines = [parsed_decode_lines[decode_idxs[i]] for i in range(len(decode_idxs))]
 
-        print('\tFinished')
+            print('\tFinished\n')
 
-        return parsed_encode_lines, parsed_decode_lines
+            yield (parsed_encode_lines, parsed_decode_lines)
 
     def lr_schedule(self, lr, start_p, every_step, decay_rate):
         '''
@@ -552,11 +570,11 @@ class Seq2seq:
             process.apply(self._unwrap_self_train, [*params])
 
 
-    def _train(self, encode_file_path, decode_file_path, load_model_path=None):
+    def _train(self, encode_file_paths, decode_file_paths, load_model_path=None):
         '''
         Main training method. After training your model instance will be saved.
-        @encode_file_path: str, the path of the encoder training file
-        @decode_file_path: str, the path of the decoder training file
+        @encode_file_paths: str or list/tuple, the path or a list of paths of the encoder training file(s)
+        @decode_file_paths: str or list/tuple, the path or a list of paths of the decoder training file(s)
         @load_model_path: str, the path of existed model directory
         @return: None
         '''
@@ -565,11 +583,10 @@ class Seq2seq:
             print('Train new model')
             
             # Create dictionary
-            self.encoder_int_to_vocab, self.encoder_vocab_to_int = self._parse_dict(encode_file_path)
-            self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_path)
+            self.encoder_int_to_vocab, self.encoder_vocab_to_int = self._parse_dict(encode_file_paths)
+            self.decoder_int_to_vocab, self.decoder_vocab_to_int = self._parse_dict(decode_file_paths)
 
-            # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=self.hyparams.n_buckets)
+            multi_file_training = True if len(encode_file_paths) > 1 else False 
 
             # create placeholder
             ## why the shape is [None, None]? explain
@@ -823,9 +840,6 @@ class Seq2seq:
             print('Load pre-trained model')
             self.load(load_model_path)
 
-            # Create seqs
-            self.encode_seqs, self.decode_seqs = self._parse_seq(encode_file_path, decode_file_path, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=self.hyparams.n_buckets)
-
             with self.graph.as_default():
                 encoder_input = self.graph.get_tensor_by_name('inputs:0')
                 encoder_input_seq_lengths = self.graph.get_tensor_by_name('source_lens:0')
@@ -842,19 +856,6 @@ class Seq2seq:
         encode_pad_id = self.encoder_vocab_to_int['<PAD>']
         decode_pad_id = self.decoder_vocab_to_int['<PAD>']
 
-        # Validate set reserve
-        n_valid_data = int(len(self.encode_seqs) * self.hyparams.valid_portion) // self.hyparams.train_batch_size * self.hyparams.train_batch_size
-        valid_idx_set = set(np.random.choice(np.arange(len(self.encode_seqs)), n_valid_data, replace=False))
-        
-        valid_encode_seqs = [seq for i, seq in enumerate(self.encode_seqs) if i in valid_idx_set]
-        valid_decode_seqs = [seq for i, seq in enumerate(self.decode_seqs) if i in valid_idx_set]
-        valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, self.hyparams.train_batch_size, encode_pad_id, decode_pad_id, forever=True)
-
-        train_encode_seqs = [seq for i, seq in enumerate(self.encode_seqs) if i not in valid_idx_set]
-        train_decode_seqs = [seq for i, seq in enumerate(self.decode_seqs) if i not in valid_idx_set]
-
-        n_batch = len(train_encode_seqs) // self.hyparams.train_batch_size
-
         # Train the model
         with self.graph.as_default():
             # Create a saver
@@ -868,79 +869,111 @@ class Seq2seq:
                 summary_writer.add_graph(self.sess.graph)
                 summary_ops = tf.summary.merge_all()
 
-            g_step = self.sess.run(global_step) % n_batch
-            # Pass trained batch
-            batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, self.hyparams.train_batch_size, encode_pad_id, decode_pad_id)
-            for _ in range(g_step):
-                _ = next(batch_generator)
+            g_step = self.sess.run(global_step)
+            recover_step = g_step
+
+            # Recover running state
+            if os.path.isfile(os.path.join(self.model_ckpt_dir, 'running_state')):
+                with open(os.path.join(self.model_ckpt_dir, 'running_state'), 'rb') as fp:
+                    (start_epoch) = pkl.load(fp)
+            else:
+                start_epoch = 1
 
             # Start training
-            start_epoch = 1 + g_step // n_batch
             for epoch_i in range(start_epoch, self.hyparams.epoch+1):
-                for cur_batch_pack in batch_generator:
-                    inputs, inputs_lens, targets, targets_lens = cur_batch_pack
+                # Create seqs
+                seqs_gen = self._parse_seq(encode_file_paths, decode_file_paths, self.encoder_vocab_to_int, self.decoder_vocab_to_int, n_buckets=self.hyparams.n_buckets)
+                for file_i, (encode_seqs, decode_seqs) in enumerate(seqs_gen):
 
-                    lr_val = next(lr_gen)
-                    _, train_loss, g_step = self.sess.run(
-                            [train_op, cost, global_step],
-                            feed_dict={
+                    # Validate set reserve
+                    n_valid_data = int(len(encode_seqs) * self.hyparams.valid_portion) // self.hyparams.train_batch_size * self.hyparams.train_batch_size
+                    valid_idx_set = set(np.random.choice(np.arange(len(encode_seqs)), n_valid_data, replace=False))
+                    
+                    valid_encode_seqs = [seq for i, seq in enumerate(encode_seqs) if i in valid_idx_set]
+                    valid_decode_seqs = [seq for i, seq in enumerate(decode_seqs) if i in valid_idx_set]
+                    valid_batch_generator = self._padding_batch(valid_encode_seqs, valid_decode_seqs, self.hyparams.train_batch_size, encode_pad_id, decode_pad_id, forever=True)
+
+                    train_encode_seqs = [seq for i, seq in enumerate(encode_seqs) if i not in valid_idx_set]
+                    train_decode_seqs = [seq for i, seq in enumerate(decode_seqs) if i not in valid_idx_set]
+
+                    n_batch = len(train_encode_seqs) // self.hyparams.train_batch_size
+
+                    batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, self.hyparams.train_batch_size, encode_pad_id, decode_pad_id)
+
+                    if recover_step > n_batch:
+                        recover_step -= n_batch
+                        continue
+                    else:
+                        for _ in range(recover_step):
+                            _ = next(batch_generator)
+
+                        recover_step = 0
+
+                    for cur_batch_pack in batch_generator:
+                        inputs, inputs_lens, targets, targets_lens = cur_batch_pack
+
+                        lr_val = next(lr_gen)
+                        _, train_loss, g_step = self.sess.run(
+                                [train_op, cost, global_step],
+                                feed_dict={
+                                    encoder_input:inputs,
+                                    encoder_input_seq_lengths:inputs_lens,
+                                    decoder_target:targets,
+                                    decoder_target_seq_lengths:targets_lens,
+                                    keep_prob: self.hyparams.keep_prob,
+                                    lr: lr_val
+                                    }
+                                )
+                        print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
+
+                        if g_step % self.hyparams.report_every == 0:
+                            valid_batch_pack = next(valid_batch_generator)
+                            valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
+
+                            val_loss, prediction_lists = self.sess.run([cost, decoder_output], feed_dict={
+                                encoder_input:valid_inputs,
+                                encoder_input_seq_lengths:valid_inputs_lens,
+                                decoder_target:valid_targets,
+                                decoder_target_seq_lengths:valid_targets_lens,
+                                keep_prob: 1.0
+                                })
+
+                            bleu_score = self._bleu(prediction_lists, valid_targets, self.hyparams.bleu_max_order, self.hyparams.bleu_smooth)
+                            print("E:{}/{} F:{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, self.hyparams.epoch, file_i, g_step, train_loss, val_loss, bleu_score, lr_val))
+
+                        if g_step % self.hyparams.show_every == 0:
+                            # Vivid example
+                            print('*********')
+                            idx = np.random.choice(np.arange(len(prediction_lists)))
+                            prediction_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in prediction_lists[idx]])
+                            input_str = ' '.join([self.encoder_int_to_vocab.get(n, '<UNK>') for n in valid_inputs[idx]])
+                            target_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in valid_targets[idx]])
+                            print('INPUT: ', input_str)
+                            print('PRED: ', prediction_str)
+                            print('EXPECT: ', target_str)
+                            print('*********')
+                        
+                        if g_step % self.hyparams.save_every == 0:
+                            saver.save(self.sess, self.model_ckpt_path, write_meta_graph=True)
+                            with open(os.path.join(self.model_ckpt_dir, 'running_state'), 'wb') as fp:
+                                pkl.dump((epoch_i), fp)
+
+                        if DEBUG and g_step % self.hyparams.summary_every == 0:
+                            summary_info = self.sess.run(summary_ops, feed_dict={
                                 encoder_input:inputs,
                                 encoder_input_seq_lengths:inputs_lens,
                                 decoder_target:targets,
                                 decoder_target_seq_lengths:targets_lens,
-                                keep_prob: self.hyparams.keep_prob,
-                                lr: lr_val
-                                }
-                            )
-                    print("\r{}/{} ".format(g_step % n_batch, n_batch), end='', flush=True)
+                                keep_prob: self.hyparams.keep_prob
+                                })
+                            summary_writer.add_summary(summary_info, self.sess.run(global_step))
 
-                    if g_step % self.hyparams.report_every == 0:
-                        valid_batch_pack = next(valid_batch_generator)
-                        valid_inputs, valid_inputs_lens, valid_targets, valid_targets_lens = valid_batch_pack
-
-                        val_loss, prediction_lists = self.sess.run([cost, decoder_output], feed_dict={
-                            encoder_input:valid_inputs,
-                            encoder_input_seq_lengths:valid_inputs_lens,
-                            decoder_target:valid_targets,
-                            decoder_target_seq_lengths:valid_targets_lens,
-                            keep_prob: 1.0
-                            })
-
-                        bleu_score = self._bleu(prediction_lists, valid_targets, self.hyparams.bleu_max_order, self.hyparams.bleu_smooth)
-                        print("E:{}/{} B:{} - train loss: {}\tvalid loss: {}\tvalid bleu: {}\tlr: {}".format(epoch_i, self.hyparams.epoch, g_step, train_loss, val_loss, bleu_score, lr_val))
-
-                    if g_step % self.hyparams.show_every == 0:
-                        # Vivid example
-                        print('*********')
-                        idx = np.random.choice(np.arange(len(prediction_lists)))
-                        prediction_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in prediction_lists[idx]])
-                        input_str = ' '.join([self.encoder_int_to_vocab.get(n, '<UNK>') for n in valid_inputs[idx]])
-                        target_str = ' '.join([self.decoder_int_to_vocab.get(n, '<UNK>') for n in valid_targets[idx]])
-                        print('INPUT: ', input_str)
-                        print('PRED: ', prediction_str)
-                        print('EXPECT: ', target_str)
-                        print('*********')
-                    
-                    if g_step % self.hyparams.save_every == 0:
-                        saver.save(self.sess, self.model_ckpt_path, write_meta_graph=True)
-
-                    if DEBUG and g_step % self.hyparams.summary_every == 0:
-                        summary_info = self.sess.run(summary_ops, feed_dict={
-                            encoder_input:inputs,
-                            encoder_input_seq_lengths:inputs_lens,
-                            decoder_target:targets,
-                            decoder_target_seq_lengths:targets_lens,
-                            keep_prob: self.hyparams.keep_prob
-                            })
-                        summary_writer.add_summary(summary_info, self.sess.run(global_step))
-
+                        if g_step > self.hyparams.max_global_step:
+                            break
                     if g_step > self.hyparams.max_global_step:
                         break
                 if g_step > self.hyparams.max_global_step:
                     break
-                
-                # Get a new batch-generator
-                batch_generator = self._padding_batch(train_encode_seqs, train_decode_seqs, self.hyparams.train_batch_size, encode_pad_id, decode_pad_id)
 
 
     def predict(self, encode_str):
@@ -1079,32 +1112,30 @@ class TextProcessor:
         if len(proc_fn_list) == 0:
             proc_fn_list = self.proc_fn_list
 
-        filedir = os.path.dirname(self.file_path)
-        filename = os.path.basename(self.file_path)
-        origin_filepath = os.path.join(filedir, filename+'.origin') 
-        os.rename(self.file_path, origin_filepath)
-        if overwrite:
-            os.remove(origin_filepath)
-
-        n_lines = len(self.lines)
         new_lines = []
+        n_lines = len(self.lines)
         for i, line in enumerate(self.lines):
-            if i % 1000 == 0 or i == n_lines - 1:
+            if i % 1000 == 0 or i == n_lines - 1: 
                 print('\rProcessing {}/{}'.format(i+1, n_lines), end='', flush=True)
             for fn in proc_fn_list:
                 line = fn(line)
-            line += '\n' if len(line)==0 or line[-1] != '\n' else ''
+            line += '\n' if line[-1] != '\n' else ''
             new_lines.append(line)
 
-            if inplace and ((i % 100000 == 0 and i > 0) or i == n_lines-1):
-                with open(self.file_path, 'a') as fp:
-                    fp.write(''.join(new_lines))
-                    new_lines = []
+        print()
+        new_content = ''.join(new_lines)
 
         if not inplace:
             return new_lines
 
-        return self.file_path
+        else:
+            filedir = os.path.dirname(self.file_path)
+            filename = os.path.basename(self.file_path)
+            if not overwrite:
+                os.rename(self.file_path, os.path.join(filedir, 'origin_'+filename))
+            with open(self.file_path, 'w') as fp:
+                fp.write(new_content)
+            return self.file_path
 
 
     def process_str(self, string, proc_fn_list=[]):
@@ -1128,9 +1159,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
             description='Build a sequence to sequence bot')
     parser.add_argument(
-            '-e', '--enc', type=str, help='The path of encode file, which contains questions')
+            '-e', '--enc', type=str, help='The path of encode file, which contains questions', nargs='*')
     parser.add_argument(
-            '-d', '--dec', type=str, help='The path of decode file, which contains answers')
+            '-d', '--dec', type=str, help='The path of decode file, which contains answers', nargs='*')
     parser.add_argument(
             '--id', type=str, help='The id of the model, if not set the id will be a unique sequence of numbers')
     parser.add_argument(
@@ -1217,13 +1248,18 @@ if __name__ == '__main__':
             print('> {}'.format(args.input))
             print('>> {}'.format(model.predict(args.input)))
 
+
     # (Re)train the model
     if args.enc != None and args.dec != None:
         tp = TextProcessor()
-        if not os.path.isfile(args.enc+'.origin'):
-            tp.read(args.enc).process(inplace=True)
-        if not os.path.isfile(args.dec+'.origin'):
-            tp.read(args.dec).process(inplace=True)
+
+        for filepath in args.enc:
+            if not os.path.isfile('origin_'+filepath):
+                tp.read(filepath).process(inplace=True)
+
+        for filepath in args.dec:
+            if not os.path.isfile('origin_'+filepath):
+                tp.read(filepath).process(inplace=True)
 
         if args.model != None:
             model._train(args.enc, args.dec, args.model)
@@ -1231,6 +1267,7 @@ if __name__ == '__main__':
             model.train(args.enc, args.dec)
 
         print('Model is saved at {}'.format(model.model_ckpt_dir))
+
     elif not all([args.enc, args.dec]) and any([args.enc, args.dec]):
         raise ValueError('You should specify both enc and dec file path')
 
