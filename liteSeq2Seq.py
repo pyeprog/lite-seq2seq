@@ -1101,10 +1101,10 @@ class TextProcessor:
                     fp.write(''.join(new_lines))
                     new_lines = []
 
-            if not inplace:
-                return new_lines
+        if not inplace:
+            return new_lines
 
-            return self.file_path
+        return self.file_path
 
 
     def process_str(self, string, proc_fn_list=[]):
